@@ -1,14 +1,16 @@
+mod run;
+
 use crate::cli::{Cli, MergeCommand, SwarmCommand, TopLevelCommand};
 
 pub struct CommandOutcome {
-    pub message: &'static str,
+    pub message: String,
     pub exit_code: u8,
 }
 
 pub fn execute(cli: Cli) -> CommandOutcome {
     match cli.command {
         TopLevelCommand::Swarm(swarm) => match swarm.command {
-            SwarmCommand::Run => unimplemented_stub("stub: swarm run is not implemented"),
+            SwarmCommand::Run(run) => run::execute(run),
             SwarmCommand::Status => unimplemented_stub("stub: swarm status is not implemented"),
             SwarmCommand::Watch => unimplemented_stub("stub: swarm watch is not implemented"),
             SwarmCommand::Pause => unimplemented_stub("stub: swarm pause is not implemented"),
@@ -32,9 +34,22 @@ pub fn execute(cli: Cli) -> CommandOutcome {
     }
 }
 
-fn unimplemented_stub(message: &'static str) -> CommandOutcome {
-    CommandOutcome {
-        message,
-        exit_code: 1,
+impl CommandOutcome {
+    pub fn success(message: String) -> Self {
+        Self {
+            message,
+            exit_code: 0,
+        }
     }
+
+    pub fn stub(message: &'static str) -> Self {
+        Self {
+            message: message.to_owned(),
+            exit_code: 1,
+        }
+    }
+}
+
+fn unimplemented_stub(message: &'static str) -> CommandOutcome {
+    CommandOutcome::stub(message)
 }

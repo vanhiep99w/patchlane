@@ -26,7 +26,7 @@ pub struct SwarmCommandGroup {
 
 #[derive(Debug, Subcommand)]
 pub enum SwarmCommand {
-    Run,
+    Run(RunCommand),
     Status,
     Watch,
     Pause,
@@ -37,6 +37,11 @@ pub enum SwarmCommand {
     Stop,
     Board,
     Web,
+}
+
+#[derive(Debug, Parser)]
+pub struct RunCommand {
+    pub objective: Option<String>,
 }
 
 #[derive(Debug, Parser)]
