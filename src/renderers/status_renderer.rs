@@ -6,9 +6,22 @@ pub fn render_status_snapshot(snapshot: &StatusSnapshot) -> String {
         format!("  {}", snapshot.run.state),
         format!("  objective: {}", snapshot.run.objective),
         String::new(),
+        "Placement".to_owned(),
+        format!(
+            "  {}: {}",
+            snapshot.placement.state, snapshot.placement.reason
+        ),
+    ];
+
+    if let Some(block_reason) = snapshot.placement.block_reason {
+        lines.push(format!("  block reason: {}", block_reason));
+    }
+
+    lines.extend([
+        String::new(),
         "Shards".to_owned(),
         "  shard  state        branch                      owner    blockers".to_owned(),
-    ];
+    ]);
 
     for shard in &snapshot.shards {
         lines.push(format!(

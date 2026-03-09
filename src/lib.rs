@@ -3,6 +3,7 @@ pub mod commands;
 pub mod domain;
 pub mod events;
 pub mod renderers;
+pub mod services;
 
 pub fn bootstrap_banner() -> &'static str {
     "Patchlane CLI bootstrap"

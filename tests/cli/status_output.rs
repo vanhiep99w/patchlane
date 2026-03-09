@@ -24,6 +24,9 @@ Run
   active
   objective: Land compact status and watch surfaces
 
+Placement
+  worktree: multiple writable shards need isolated worktrees
+
 Shards
   shard  state        branch                      owner    blockers
   01     done         feat/opening-block          agent-a  none

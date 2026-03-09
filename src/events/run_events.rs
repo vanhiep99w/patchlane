@@ -1,5 +1,6 @@
 pub struct StatusSnapshot {
     pub run: RunSnapshot,
+    pub placement: PlacementSnapshot,
     pub shards: Vec<ShardSnapshot>,
     pub blockers: BlockerSummary,
     pub merge_queue: MergeQueueSummary,
@@ -10,6 +11,12 @@ pub struct StatusSnapshot {
 pub struct RunSnapshot {
     pub state: &'static str,
     pub objective: &'static str,
+}
+
+pub struct PlacementSnapshot {
+    pub state: &'static str,
+    pub reason: &'static str,
+    pub block_reason: Option<&'static str>,
 }
 
 pub struct ShardSnapshot {
@@ -41,6 +48,11 @@ pub fn fixture_status_snapshot() -> StatusSnapshot {
         run: RunSnapshot {
             state: "active",
             objective: "Land compact status and watch surfaces",
+        },
+        placement: PlacementSnapshot {
+            state: "worktree",
+            reason: "multiple writable shards need isolated worktrees",
+            block_reason: None,
         },
         shards: vec![
             ShardSnapshot {
