@@ -7,19 +7,6 @@ fn run_command(args: &[&str]) -> std::process::Output {
         .expect("CLI should be executable")
 }
 
-fn assert_unimplemented_command(args: &[&str], expected_stderr: &str) {
-    let output = run_command(args);
-
-    assert!(
-        !output.status.success(),
-        "expected {:?} to fail while stubbed",
-        args
-    );
-
-    let stderr = String::from_utf8(output.stderr).expect("stderr should be valid UTF-8");
-    assert_eq!(stderr.trim(), expected_stderr);
-}
-
 fn assert_implemented_command(args: &[&str]) {
     let output = run_command(args);
 
@@ -72,20 +59,10 @@ fn command_topology_recognizes_approved_swarm_commands() {
         vec!["swarm", "merge", "approve", "merge-001"],
         vec!["swarm", "merge", "reject", "merge-001"],
         vec!["swarm", "stop", "run-active"],
+        vec!["swarm", "board"],
+        vec!["swarm", "web"],
     ] {
         assert_implemented_command(&args);
-    }
-
-    let cases = [
-        (
-            vec!["swarm", "board"],
-            "stub: swarm board is not implemented",
-        ),
-        (vec!["swarm", "web"], "stub: swarm web is not implemented"),
-    ];
-
-    for (args, expected_stderr) in cases {
-        assert_unimplemented_command(&args, expected_stderr);
     }
 
     assert_help_failure(

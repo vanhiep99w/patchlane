@@ -1,3 +1,4 @@
+mod board;
 mod intervention_support;
 mod merge_approve;
 mod merge_reject;
@@ -8,6 +9,7 @@ mod run;
 mod status;
 mod stop;
 mod watch;
+mod web;
 
 use crate::cli::{Cli, MergeCommand, SwarmCommand, TopLevelCommand};
 
@@ -37,8 +39,8 @@ pub fn execute(cli: Cli) -> CommandOutcome {
                 MergeCommand::Reject(command) => merge_reject::execute(command),
             },
             SwarmCommand::Stop(command) => stop::execute(command),
-            SwarmCommand::Board => unimplemented_stub("stub: swarm board is not implemented"),
-            SwarmCommand::Web => unimplemented_stub("stub: swarm web is not implemented"),
+            SwarmCommand::Board => board::execute(),
+            SwarmCommand::Web => web::execute(),
         },
     }
 }
@@ -67,8 +69,4 @@ impl CommandOutcome {
             stream: OutputStream::Stderr,
         }
     }
-}
-
-fn unimplemented_stub(message: &'static str) -> CommandOutcome {
-    CommandOutcome::stub(message)
 }
