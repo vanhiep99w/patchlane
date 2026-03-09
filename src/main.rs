@@ -2,14 +2,6 @@ use clap::Parser;
 use std::env;
 use std::process::ExitCode;
 
-#[derive(Debug, Parser)]
-#[command(name = "patchlane")]
-#[command(about = "Patchlane CLI bootstrap")]
-#[command(
-    long_about = "Patchlane CLI bootstrap\n\nPlanned swarm commands are not implemented yet."
-)]
-struct Cli;
-
 fn main() -> ExitCode {
     if env::args_os().nth(1).is_none() {
         eprintln!(
@@ -19,7 +11,7 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     }
 
-    let _ = Cli::parse();
-    println!("{}", patchlane::bootstrap_banner());
+    let cli = patchlane::cli::Cli::parse();
+    println!("{}", patchlane::commands::execute(cli));
     ExitCode::SUCCESS
 }
