@@ -8,7 +8,7 @@ fn run_command(args: &[&str]) -> std::process::Output {
 }
 
 #[test]
-fn run_output_prints_opening_sections_in_contract_order() {
+fn run_output_matches_the_opening_block_contract() {
     let output = run_command(&["swarm", "run", "demo objective"]);
 
     assert!(
@@ -18,20 +18,23 @@ fn run_output_prints_opening_sections_in_contract_order() {
     );
 
     let stderr = String::from_utf8(output.stderr).expect("stderr should be valid UTF-8");
+    let expected = "\
+Run
+  queued
 
-    let expected = [
-        "Run",
-        "Objective",
-        "Plan",
-        "Placement",
-        "Next",
-    ];
+Objective
+  demo objective
 
-    let mut cursor = 0usize;
-    for heading in expected {
-        let relative_index = stderr[cursor..]
-            .find(heading)
-            .unwrap_or_else(|| panic!("expected `{heading}` after byte {cursor}, got:\n{stderr}"));
-        cursor += relative_index + heading.len();
-    }
+Plan
+  1. Capture the requested objective.
+  2. Prepare a placeholder execution plan.
+
+Placement
+  pending placement decision
+
+Next
+  waiting for planner and runtime integration
+";
+
+    assert_eq!(stderr, expected);
 }
