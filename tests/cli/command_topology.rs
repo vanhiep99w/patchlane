@@ -62,36 +62,21 @@ fn assert_help_failure(args: &[&str], expected_help_fragments: &[&str]) {
 
 #[test]
 fn command_topology_recognizes_approved_swarm_commands() {
-    for args in [vec!["swarm", "status"], vec!["swarm", "watch"]] {
+    for args in [
+        vec!["swarm", "status"],
+        vec!["swarm", "watch"],
+        vec!["swarm", "pause", "run-active"],
+        vec!["swarm", "resume", "run-paused"],
+        vec!["swarm", "retry", "shard-failed"],
+        vec!["swarm", "reassign", "shard-running", "--runtime", "codex"],
+        vec!["swarm", "merge", "approve", "merge-001"],
+        vec!["swarm", "merge", "reject", "merge-001"],
+        vec!["swarm", "stop", "run-active"],
+    ] {
         assert_implemented_command(&args);
     }
 
     let cases = [
-        (
-            vec!["swarm", "pause"],
-            "stub: swarm pause is not implemented",
-        ),
-        (
-            vec!["swarm", "resume"],
-            "stub: swarm resume is not implemented",
-        ),
-        (
-            vec!["swarm", "retry"],
-            "stub: swarm retry is not implemented",
-        ),
-        (
-            vec!["swarm", "reassign"],
-            "stub: swarm reassign is not implemented",
-        ),
-        (
-            vec!["swarm", "merge", "approve"],
-            "stub: swarm merge approve is not implemented",
-        ),
-        (
-            vec!["swarm", "merge", "reject"],
-            "stub: swarm merge reject is not implemented",
-        ),
-        (vec!["swarm", "stop"], "stub: swarm stop is not implemented"),
         (
             vec!["swarm", "board"],
             "stub: swarm board is not implemented",
@@ -126,12 +111,28 @@ fn command_topology_surfaces_help_for_incomplete_invocations() {
         ],
     );
     assert_help_failure(
+        &["swarm", "pause"],
+        &[
+            "Usage: patchlane swarm pause <TARGET_ID>",
+            "error: the following required arguments were not provided:",
+            "<TARGET_ID>",
+        ],
+    );
+    assert_help_failure(
         &["swarm", "merge"],
         &[
             "Usage: patchlane swarm merge <COMMAND>",
             "Commands:",
             "approve",
             "reject",
+        ],
+    );
+    assert_help_failure(
+        &["swarm", "merge", "approve"],
+        &[
+            "Usage: patchlane swarm merge approve <MERGE_UNIT_ID>",
+            "error: the following required arguments were not provided:",
+            "<MERGE_UNIT_ID>",
         ],
     );
 }

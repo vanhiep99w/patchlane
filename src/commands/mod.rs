@@ -1,5 +1,12 @@
+mod intervention_support;
+mod merge_approve;
+mod merge_reject;
+mod pause;
+mod reassign;
+mod resume;
 mod run;
 mod status;
+mod stop;
 mod watch;
 
 use crate::cli::{Cli, MergeCommand, SwarmCommand, TopLevelCommand};
@@ -21,19 +28,15 @@ pub fn execute(cli: Cli) -> CommandOutcome {
             SwarmCommand::Run(run) => run::execute(run),
             SwarmCommand::Status => status::execute(),
             SwarmCommand::Watch => watch::execute(),
-            SwarmCommand::Pause => unimplemented_stub("stub: swarm pause is not implemented"),
-            SwarmCommand::Resume => unimplemented_stub("stub: swarm resume is not implemented"),
-            SwarmCommand::Retry => unimplemented_stub("stub: swarm retry is not implemented"),
-            SwarmCommand::Reassign => unimplemented_stub("stub: swarm reassign is not implemented"),
+            SwarmCommand::Pause(command) => pause::execute(command),
+            SwarmCommand::Resume(command) => resume::execute(command),
+            SwarmCommand::Retry(command) => reassign::execute_retry(command),
+            SwarmCommand::Reassign(command) => reassign::execute_reassign(command),
             SwarmCommand::Merge(merge) => match merge.command {
-                MergeCommand::Approve => {
-                    unimplemented_stub("stub: swarm merge approve is not implemented")
-                }
-                MergeCommand::Reject => {
-                    unimplemented_stub("stub: swarm merge reject is not implemented")
-                }
+                MergeCommand::Approve(command) => merge_approve::execute(command),
+                MergeCommand::Reject(command) => merge_reject::execute(command),
             },
-            SwarmCommand::Stop => unimplemented_stub("stub: swarm stop is not implemented"),
+            SwarmCommand::Stop(command) => stop::execute(command),
             SwarmCommand::Board => unimplemented_stub("stub: swarm board is not implemented"),
             SwarmCommand::Web => unimplemented_stub("stub: swarm web is not implemented"),
         },
