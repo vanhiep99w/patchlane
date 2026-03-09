@@ -19,10 +19,14 @@ fn bootstrap_cli_help_reports_current_surface() {
         stdout.contains("Planned swarm commands are not implemented yet."),
         "help output should describe the bootstrap limitation"
     );
+    assert!(
+        stdout.contains("swarm"),
+        "help output should expose the swarm command tree"
+    );
 }
 
 #[test]
-fn bootstrap_cli_without_args_reports_bootstrap_only_state() {
+fn bootstrap_cli_without_args_reports_command_surface_help() {
     let output = Command::new(env!("CARGO_BIN_EXE_patchlane"))
         .output()
         .expect("bootstrap CLI should be executable");
@@ -37,14 +41,14 @@ fn bootstrap_cli_without_args_reports_bootstrap_only_state() {
 
     assert!(
         stderr.contains("Patchlane CLI bootstrap"),
-        "bare invocation should identify the bootstrap binary"
+        "bare invocation should still identify the bootstrap binary"
     );
     assert!(
-        stderr.contains("Planned swarm commands are not implemented yet."),
-        "bare invocation should explain the current limitation"
+        stderr.contains("Usage: patchlane <COMMAND>"),
+        "bare invocation should surface top-level help"
     );
     assert!(
-        stderr.contains("Use --help"),
-        "bare invocation should direct the operator to help"
+        stderr.contains("swarm"),
+        "bare invocation should expose the swarm namespace"
     );
 }

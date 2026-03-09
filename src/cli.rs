@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 #[command(
     long_about = "Patchlane CLI bootstrap\n\nPlanned swarm commands are not implemented yet."
 )]
+#[command(subcommand_required = true, arg_required_else_help = true)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: TopLevelCommand,

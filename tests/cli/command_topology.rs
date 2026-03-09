@@ -1,43 +1,94 @@
 use std::process::Command;
 
-fn assert_command(
-    args: &[&str],
-    expected_stdout: &str,
-) {
-    let output = Command::new(env!("CARGO_BIN_EXE_patchlane"))
+fn run_command(args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_patchlane"))
         .args(args)
         .output()
-        .expect("CLI should be executable");
+        .expect("CLI should be executable")
+}
+
+fn assert_unimplemented_command(args: &[&str], expected_stderr: &str) {
+    let output = run_command(args);
 
     assert!(
-        output.status.success(),
-        "expected {:?} to succeed, stderr was: {}",
-        args,
-        String::from_utf8_lossy(&output.stderr)
+        !output.status.success(),
+        "expected {:?} to fail while stubbed",
+        args
     );
 
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be valid UTF-8");
+    assert_eq!(stderr.trim(), expected_stderr);
+}
+
+fn assert_help_failure(args: &[&str], expected_help_fragments: &[&str]) {
+    let output = run_command(args);
+    assert!(
+        !output.status.success(),
+        "expected {:?} to fail with help output",
+        args,
+    );
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be valid UTF-8");
     let stdout = String::from_utf8(output.stdout).expect("stdout should be valid UTF-8");
-    assert_eq!(stdout.trim(), expected_stdout);
+    let combined = format!("{stdout}{stderr}");
+    for fragment in expected_help_fragments {
+        assert!(
+            combined.contains(fragment),
+            "expected help output for {:?} to contain {:?}, got: {}",
+            args,
+            fragment,
+            combined
+        );
+    }
 }
 
 #[test]
 fn command_topology_recognizes_approved_swarm_commands() {
     let cases = [
-        (vec!["swarm", "run"], "stub: swarm run"),
-        (vec!["swarm", "status"], "stub: swarm status"),
-        (vec!["swarm", "watch"], "stub: swarm watch"),
-        (vec!["swarm", "pause"], "stub: swarm pause"),
-        (vec!["swarm", "resume"], "stub: swarm resume"),
-        (vec!["swarm", "retry"], "stub: swarm retry"),
-        (vec!["swarm", "reassign"], "stub: swarm reassign"),
-        (vec!["swarm", "merge", "approve"], "stub: swarm merge approve"),
-        (vec!["swarm", "merge", "reject"], "stub: swarm merge reject"),
-        (vec!["swarm", "stop"], "stub: swarm stop"),
-        (vec!["swarm", "board"], "stub: swarm board"),
-        (vec!["swarm", "web"], "stub: swarm web"),
+        (vec!["swarm", "run"], "stub: swarm run is not implemented"),
+        (vec!["swarm", "status"], "stub: swarm status is not implemented"),
+        (vec!["swarm", "watch"], "stub: swarm watch is not implemented"),
+        (vec!["swarm", "pause"], "stub: swarm pause is not implemented"),
+        (vec!["swarm", "resume"], "stub: swarm resume is not implemented"),
+        (vec!["swarm", "retry"], "stub: swarm retry is not implemented"),
+        (vec!["swarm", "reassign"], "stub: swarm reassign is not implemented"),
+        (
+            vec!["swarm", "merge", "approve"],
+            "stub: swarm merge approve is not implemented",
+        ),
+        (
+            vec!["swarm", "merge", "reject"],
+            "stub: swarm merge reject is not implemented",
+        ),
+        (vec!["swarm", "stop"], "stub: swarm stop is not implemented"),
+        (vec!["swarm", "board"], "stub: swarm board is not implemented"),
+        (vec!["swarm", "web"], "stub: swarm web is not implemented"),
     ];
 
-    for (args, expected_stdout) in cases {
-        assert_command(&args, expected_stdout);
+    for (args, expected_stderr) in cases {
+        assert_unimplemented_command(&args, expected_stderr);
     }
+}
+
+#[test]
+fn command_topology_surfaces_help_for_incomplete_invocations() {
+    assert_help_failure(&[], &["Usage: patchlane <COMMAND>", "Commands:", "swarm"]);
+    assert_help_failure(
+        &["swarm"],
+        &[
+            "Usage: patchlane swarm <COMMAND>",
+            "Commands:",
+            "run",
+            "merge",
+        ],
+    );
+    assert_help_failure(
+        &["swarm", "merge"],
+        &[
+            "Usage: patchlane swarm merge <COMMAND>",
+            "Commands:",
+            "approve",
+            "reject",
+        ],
+    );
 }

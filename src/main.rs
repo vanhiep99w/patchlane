@@ -1,17 +1,21 @@
 use clap::Parser;
-use std::env;
+use clap::error::ErrorKind;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    if env::args_os().nth(1).is_none() {
-        eprintln!(
-            "{}\n\nPlanned swarm commands are not implemented yet.\nUse --help to inspect the current bootstrap surface.",
-            patchlane::bootstrap_banner()
-        );
-        return ExitCode::from(1);
-    }
+    let cli = match patchlane::cli::Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) => {
+            let exit_code = match error.kind() {
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => 0,
+                _ => 2,
+            };
+            error.print().expect("clap errors should be printable");
+            return ExitCode::from(exit_code);
+        }
+    };
 
-    let cli = patchlane::cli::Cli::parse();
-    println!("{}", patchlane::commands::execute(cli));
-    ExitCode::SUCCESS
+    let outcome = patchlane::commands::execute(cli);
+    eprintln!("{}", outcome.message);
+    ExitCode::from(outcome.exit_code)
 }
