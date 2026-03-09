@@ -41,7 +41,8 @@ pub enum SwarmCommand {
 
 #[derive(Debug, Parser)]
 pub struct RunCommand {
-    pub objective: Option<String>,
+    #[arg(value_name = "OBJECTIVE")]
+    pub objective: String,
 }
 
 #[derive(Debug, Parser)]

@@ -5,6 +5,12 @@ use crate::cli::{Cli, MergeCommand, SwarmCommand, TopLevelCommand};
 pub struct CommandOutcome {
     pub message: String,
     pub exit_code: u8,
+    pub stream: OutputStream,
+}
+
+pub enum OutputStream {
+    Stdout,
+    Stderr,
 }
 
 pub fn execute(cli: Cli) -> CommandOutcome {
@@ -39,6 +45,7 @@ impl CommandOutcome {
         Self {
             message,
             exit_code: 0,
+            stream: OutputStream::Stdout,
         }
     }
 
@@ -46,6 +53,15 @@ impl CommandOutcome {
         Self {
             message: message.to_owned(),
             exit_code: 1,
+            stream: OutputStream::Stderr,
+        }
+    }
+
+    pub fn error(message: String) -> Self {
+        Self {
+            message,
+            exit_code: 1,
+            stream: OutputStream::Stderr,
         }
     }
 }

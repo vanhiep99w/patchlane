@@ -16,6 +16,9 @@ fn main() -> ExitCode {
     };
 
     let outcome = patchlane::commands::execute(cli);
-    eprintln!("{}", outcome.message);
+    match outcome.stream {
+        patchlane::commands::OutputStream::Stdout => println!("{}", outcome.message),
+        patchlane::commands::OutputStream::Stderr => eprintln!("{}", outcome.message),
+    }
     ExitCode::from(outcome.exit_code)
 }

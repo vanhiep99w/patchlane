@@ -45,7 +45,6 @@ fn assert_help_failure(args: &[&str], expected_help_fragments: &[&str]) {
 #[test]
 fn command_topology_recognizes_approved_swarm_commands() {
     let cases = [
-        (vec!["swarm", "run"], "stub: swarm run is not implemented"),
         (vec!["swarm", "status"], "stub: swarm status is not implemented"),
         (vec!["swarm", "watch"], "stub: swarm watch is not implemented"),
         (vec!["swarm", "pause"], "stub: swarm pause is not implemented"),
@@ -68,6 +67,15 @@ fn command_topology_recognizes_approved_swarm_commands() {
     for (args, expected_stderr) in cases {
         assert_unimplemented_command(&args, expected_stderr);
     }
+
+    assert_help_failure(
+        &["swarm", "run"],
+        &[
+            "Usage: patchlane swarm run <OBJECTIVE>",
+            "error: the following required arguments were not provided:",
+            "<OBJECTIVE>",
+        ],
+    );
 }
 
 #[test]

@@ -3,9 +3,11 @@ use crate::commands::CommandOutcome;
 use crate::renderers::run_renderer::{render_opening_block, RunOpeningBlock};
 
 pub fn execute(command: RunCommand) -> CommandOutcome {
-    let Some(objective) = command.objective else {
-        return CommandOutcome::stub("stub: swarm run is not implemented");
-    };
+    let objective = command.objective;
+
+    if objective.contains('\n') || objective.contains('\r') {
+        return CommandOutcome::error("error: objective must be a single line".to_owned());
+    }
 
     let opening = RunOpeningBlock::new(objective);
 
