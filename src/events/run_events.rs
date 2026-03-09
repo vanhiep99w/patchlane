@@ -75,8 +75,8 @@ pub fn fixture_status_snapshot() -> StatusSnapshot {
             pending: vec!["shard 02 feat/status-snapshot"],
         },
         latest_event: EventLine {
-            timestamp: "2026-03-09T10:15:00Z",
-            message: "review requested for shard 03 by maintainer",
+            timestamp: "2026-03-09T10:18:00Z",
+            message: "merge queue ready for shard 01 feat/opening-block",
         },
         suggested_next_command: "patchlane swarm watch",
     }

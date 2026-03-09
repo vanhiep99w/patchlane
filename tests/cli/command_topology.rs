@@ -20,6 +20,24 @@ fn assert_unimplemented_command(args: &[&str], expected_stderr: &str) {
     assert_eq!(stderr.trim(), expected_stderr);
 }
 
+fn assert_implemented_command(args: &[&str]) {
+    let output = run_command(args);
+
+    assert!(
+        output.status.success(),
+        "expected {:?} to succeed once implemented, stderr: {}",
+        args,
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be valid UTF-8");
+    assert!(
+        stderr.is_empty(),
+        "implemented command {:?} should not write to stderr",
+        args
+    );
+}
+
 fn assert_help_failure(args: &[&str], expected_help_fragments: &[&str]) {
     let output = run_command(args);
     assert!(
@@ -44,13 +62,27 @@ fn assert_help_failure(args: &[&str], expected_help_fragments: &[&str]) {
 
 #[test]
 fn command_topology_recognizes_approved_swarm_commands() {
+    for args in [vec!["swarm", "status"], vec!["swarm", "watch"]] {
+        assert_implemented_command(&args);
+    }
+
     let cases = [
-        (vec!["swarm", "status"], "stub: swarm status is not implemented"),
-        (vec!["swarm", "watch"], "stub: swarm watch is not implemented"),
-        (vec!["swarm", "pause"], "stub: swarm pause is not implemented"),
-        (vec!["swarm", "resume"], "stub: swarm resume is not implemented"),
-        (vec!["swarm", "retry"], "stub: swarm retry is not implemented"),
-        (vec!["swarm", "reassign"], "stub: swarm reassign is not implemented"),
+        (
+            vec!["swarm", "pause"],
+            "stub: swarm pause is not implemented",
+        ),
+        (
+            vec!["swarm", "resume"],
+            "stub: swarm resume is not implemented",
+        ),
+        (
+            vec!["swarm", "retry"],
+            "stub: swarm retry is not implemented",
+        ),
+        (
+            vec!["swarm", "reassign"],
+            "stub: swarm reassign is not implemented",
+        ),
         (
             vec!["swarm", "merge", "approve"],
             "stub: swarm merge approve is not implemented",
@@ -60,7 +92,10 @@ fn command_topology_recognizes_approved_swarm_commands() {
             "stub: swarm merge reject is not implemented",
         ),
         (vec!["swarm", "stop"], "stub: swarm stop is not implemented"),
-        (vec!["swarm", "board"], "stub: swarm board is not implemented"),
+        (
+            vec!["swarm", "board"],
+            "stub: swarm board is not implemented",
+        ),
         (vec!["swarm", "web"], "stub: swarm web is not implemented"),
     ];
 

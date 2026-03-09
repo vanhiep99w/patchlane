@@ -40,7 +40,7 @@ Merge Queue
   - pending: shard 02 feat/status-snapshot
 
 Latest Event
-  2026-03-09T10:15:00Z review requested for shard 03 by maintainer
+  2026-03-09T10:18:00Z merge queue ready for shard 01 feat/opening-block
 
 Next
   patchlane swarm watch
