@@ -2,7 +2,7 @@ use crate::cli::Runtime;
 use std::fs::{self, File};
 use std::io;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 
 #[derive(Debug, Clone)]
 pub struct LaunchRequest {
@@ -22,6 +22,12 @@ pub struct LaunchSpec {
 #[derive(Debug)]
 pub struct LaunchOutcome {
     pub pid: u32,
+    pub stdout_log: PathBuf,
+    pub stderr_log: PathBuf,
+}
+
+pub struct ManagedLaunchOutcome {
+    pub child: Child,
     pub stdout_log: PathBuf,
     pub stderr_log: PathBuf,
 }
@@ -75,6 +81,19 @@ pub fn launch_worker(
     program: &str,
     args: &[&str],
 ) -> Result<LaunchOutcome, RuntimeLaunchError> {
+    let managed = spawn_worker(request, program, args)?;
+    Ok(LaunchOutcome {
+        pid: managed.child.id(),
+        stdout_log: managed.stdout_log,
+        stderr_log: managed.stderr_log,
+    })
+}
+
+pub fn spawn_worker(
+    request: &LaunchRequest,
+    program: &str,
+    args: &[&str],
+) -> Result<ManagedLaunchOutcome, RuntimeLaunchError> {
     fs::create_dir_all(&request.workspace).map_err(|source| RuntimeLaunchError::SpawnFailed {
         program: program.to_owned(),
         shard_id: request.shard_id.clone(),
@@ -115,8 +134,8 @@ pub fn launch_worker(
             source,
         })?;
 
-    Ok(LaunchOutcome {
-        pid: child.id(),
+    Ok(ManagedLaunchOutcome {
+        child,
         stdout_log,
         stderr_log,
     })
