@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
 #[command(name = "patchlane")]
@@ -41,8 +41,16 @@ pub enum SwarmCommand {
 
 #[derive(Debug, Parser)]
 pub struct RunCommand {
+    #[arg(long, value_name = "RUNTIME")]
+    pub runtime: Runtime,
     #[arg(value_name = "OBJECTIVE")]
     pub objective: String,
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum Runtime {
+    Codex,
+    Claude,
 }
 
 #[derive(Debug, Parser)]

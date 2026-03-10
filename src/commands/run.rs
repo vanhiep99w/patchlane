@@ -18,7 +18,7 @@ pub fn execute(command: RunCommand) -> CommandOutcome {
         repo_is_dirty: false,
         blocked_reason: None,
     });
-    let opening = RunOpeningBlock::new(objective, placement);
+    let opening = RunOpeningBlock::new(command.runtime, objective, placement);
 
     CommandOutcome::success(render_opening_block(&opening))
 }

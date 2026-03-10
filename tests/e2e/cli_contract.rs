@@ -11,7 +11,7 @@ fn run_command(args: &[&str]) -> std::process::Output {
 fn cli_contract_covers_run_status_watch_and_intervention_flow() {
     let objective = "Land compact status and watch surfaces";
 
-    let run_output = run_command(&["swarm", "run", objective]);
+    let run_output = run_command(&["swarm", "run", "--runtime", "codex", objective]);
     assert!(
         run_output.status.success(),
         "expected swarm run to succeed, stderr: {}",
@@ -19,6 +19,7 @@ fn cli_contract_covers_run_status_watch_and_intervention_flow() {
     );
     let run_stdout = String::from_utf8(run_output.stdout).expect("stdout should be valid UTF-8");
     assert!(run_stdout.contains("Run\n  queued"));
+    assert!(run_stdout.contains("runtime: codex"));
     assert!(run_stdout.contains(&format!("Objective\n  {objective}")));
     assert!(run_stdout.contains("Next\n  waiting for planner and runtime integration"));
 
