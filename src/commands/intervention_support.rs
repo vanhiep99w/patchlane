@@ -245,14 +245,6 @@ fn retry_persisted_shard(shard_id: &str) -> Option<CommandOutcome> {
         Ok(outcome) => outcome,
         Err(error) => {
             let _ = mark_retry_spawn_failure(&run_dir, shard, &mut attempts, shard_id, &error);
-            let _ = append_event(
-                &run_dir,
-                &PersistedEvent {
-                    timestamp: timestamp_now(),
-                    shard_id: Some(shard_id.to_owned()),
-                    message: format!("retry spawn failure for shard {}: {:?}", shard_id, error),
-                },
-            );
             return Some(CommandOutcome::error(render_response(
                 "failed",
                 "retry",
@@ -274,7 +266,8 @@ fn retry_persisted_shard(shard_id: &str) -> Option<CommandOutcome> {
 
     shard.pid = Some(pid);
     shard.state = "launched".to_owned();
-    if let Err(error) = finalize_retry_launch(&run_dir, shard, &attempts, shard_id, &mut launch) {
+    if let Err(error) = finalize_retry_launch(&run_dir, shard, &mut attempts, shard_id, &mut launch)
+    {
         return Some(CommandOutcome::error(format!(
             "error: failed to finalize retried shard launch: {error}"
         )));
@@ -458,8 +451,8 @@ fn timestamp_now() -> String {
 
 fn finalize_retry_launch(
     run_dir: &PathBuf,
-    shard: &PersistedShard,
-    attempts: &[PersistedShardAttempt],
+    shard: &mut PersistedShard,
+    attempts: &mut [PersistedShardAttempt],
     shard_id: &str,
     launch: &mut ManagedLaunchOutcome,
 ) -> io::Result<()> {
@@ -467,8 +460,14 @@ fn finalize_retry_launch(
         terminate_child(launch);
         return Err(error);
     }
+
+    if std::env::var_os("PATCHLANE_TEST_RETRY_FINALIZE_FAIL").is_some() {
+        rollback_retry_launch_state(run_dir, shard, attempts, shard_id, launch);
+        return Err(io::Error::other("simulated retry finalization failure"));
+    }
+
     if let Err(error) = write_shard_attempts(run_dir, shard_id, attempts) {
-        terminate_child(launch);
+        rollback_retry_launch_state(run_dir, shard, attempts, shard_id, launch);
         return Err(error);
     }
     if let Err(error) = append_event(
@@ -479,7 +478,7 @@ fn finalize_retry_launch(
             message: format!("retried shard {} with pid {}", shard_id, launch.child.id()),
         },
     ) {
-        terminate_child(launch);
+        rollback_retry_launch_state(run_dir, shard, attempts, shard_id, launch);
         return Err(error);
     }
 
@@ -514,4 +513,22 @@ fn mark_retry_spawn_failure(
 fn terminate_child(launch: &mut ManagedLaunchOutcome) {
     let _ = launch.child.kill();
     let _ = launch.child.wait();
+}
+
+fn rollback_retry_launch_state(
+    run_dir: &PathBuf,
+    shard: &mut PersistedShard,
+    attempts: &mut [PersistedShardAttempt],
+    shard_id: &str,
+    launch: &mut ManagedLaunchOutcome,
+) {
+    terminate_child(launch);
+    shard.pid = None;
+    shard.state = "failed".to_owned();
+    if let Some(last_attempt) = attempts.last_mut() {
+        last_attempt.pid = None;
+        last_attempt.state = "failed".to_owned();
+    }
+    let _ = write_shard(run_dir, shard);
+    let _ = write_shard_attempts(run_dir, shard_id, attempts);
 }
