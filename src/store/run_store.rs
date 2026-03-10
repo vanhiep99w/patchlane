@@ -57,7 +57,9 @@ pub fn load_run(run_dir: &Path) -> io::Result<PersistedRun> {
 
 pub fn load_shards(run_dir: &Path) -> io::Result<Vec<PersistedShard>> {
     let mut shard_paths = fs::read_dir(run_dir)?
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .collect::<io::Result<Vec<_>>>()?
+        .into_iter()
+        .map(|entry| entry.path())
         .filter(|path| {
             path.file_name()
                 .and_then(|name| name.to_str())

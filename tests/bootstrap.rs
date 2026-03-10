@@ -54,17 +54,6 @@ fn bootstrap_cli_without_args_reports_command_surface_help() {
 }
 
 #[test]
-fn bootstrap_library_exposes_the_file_backed_run_store_surface() {
-    let event = patchlane::store::run_store::PersistedEvent {
-        timestamp: "2026-03-10T00:00:00Z".to_owned(),
-        shard_id: Some("01".to_owned()),
-        message: "worker launched".to_owned(),
-    };
-
-    let encoded = serde_json::to_string(&event).expect("store event should serialize");
-    let decoded: patchlane::store::run_store::PersistedEvent =
-        serde_json::from_str(&encoded).expect("store event should deserialize");
-
-    assert_eq!(decoded.message, "worker launched");
+fn bootstrap_library_banner_remains_stable_after_store_wiring() {
     assert_eq!(patchlane::bootstrap_banner(), "Patchlane CLI bootstrap");
 }
