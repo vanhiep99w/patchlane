@@ -31,7 +31,7 @@ cargo run -- swarm board
 cargo run -- swarm web
 ```
 
-Intervention commands currently use deterministic fixture ids so the local contract stays stable while persistence is still placeholder-driven:
+Most intervention commands still use deterministic fixture ids so the local contract stays stable, but `swarm retry <shard-id>` now operates on persisted shard state from the latest local run:
 
 - run ids: `run-active`, `run-paused`, `run-done`, `run-stopped`
 - shard ids: `shard-queued`, `shard-assigned`, `shard-running`, `shard-blocked`, `shard-failed`, `shard-done`
