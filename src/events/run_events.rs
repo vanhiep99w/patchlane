@@ -93,6 +93,24 @@ pub fn fixture_watch_events() -> Vec<EventLine> {
     crate::workflow::superpowers_contract::fixture_stage_event_lines()
 }
 
+pub fn derive_watch_events(events: Vec<PersistedEvent>) -> Vec<EventLine> {
+    if events.is_empty() {
+        return vec![EventLine {
+            timestamp: "none".to_owned(),
+            message: "no recorded events".to_owned(),
+        }];
+    }
+
+    events.into_iter().map(|event| event_line(&event)).collect()
+}
+
+pub fn empty_watch_events() -> Vec<EventLine> {
+    vec![EventLine {
+        timestamp: "none".to_owned(),
+        message: "no persisted runs found".to_owned(),
+    }]
+}
+
 fn shard_snapshot(shard: &PersistedShard, events: &[PersistedEvent]) -> ShardSnapshot {
     ShardSnapshot {
         id: shard.shard_id.clone(),
