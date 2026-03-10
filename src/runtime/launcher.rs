@@ -13,6 +13,17 @@ pub struct LaunchRequest {
     pub logs_dir: PathBuf,
 }
 
+#[derive(Debug, Clone)]
+pub struct AgentLaunchRequest {
+    pub runtime: Runtime,
+    pub run_id: String,
+    pub role: String,
+    pub prompt: String,
+    pub workspace: PathBuf,
+    pub logs_dir: PathBuf,
+    pub run_dir: PathBuf,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct LaunchSpec {
     pub program: &'static str,
@@ -87,6 +98,69 @@ pub fn launch_worker(
         stdout_log: managed.stdout_log,
         stderr_log: managed.stderr_log,
     })
+}
+
+pub fn launch_agent(request: &AgentLaunchRequest) -> Result<LaunchOutcome, RuntimeLaunchError> {
+    let reporting_contract = format!(
+        " Report state with `patchlane agent-event --run-dir {} --run-id {} --agent-id {} --message <payload> <event-type>`. Use artifact payload `<type>|<path>` and waiting-approval payload `<checkpoint-id>|<prompt>`.",
+        request.run_dir.display(),
+        request.run_id,
+        request.role
+    );
+    let launch_request = LaunchRequest {
+        runtime: request.runtime.clone(),
+        shard_id: format!("agent-{}", request.role),
+        brief: format!("{}{}", request.prompt, reporting_contract),
+        workspace: request.workspace.clone(),
+        logs_dir: request.logs_dir.clone(),
+    };
+    let spec = build_agent_launch_spec(request, &launch_request);
+    let args = spec.args.iter().map(String::as_str).collect::<Vec<_>>();
+    launch_worker(&launch_request, spec.program, &args)
+}
+
+fn build_agent_launch_spec(
+    request: &AgentLaunchRequest,
+    launch_request: &LaunchRequest,
+) -> LaunchSpec {
+    if let Ok(mode) = std::env::var("PATCHLANE_TEST_RUNTIME_MODE") {
+        return match mode.as_str() {
+            "success" => build_agent_success_spec(request),
+            "missing_binary" => LaunchSpec {
+                program: "__patchlane_missing_binary__",
+                args: vec!["simulate-agent".to_owned()],
+            },
+            _ => build_default_launch_spec(launch_request),
+        };
+    }
+
+    build_default_launch_spec(launch_request)
+}
+
+fn build_agent_success_spec(request: &AgentLaunchRequest) -> LaunchSpec {
+    let phase_message = format!("launcher-contract:{}", request.run_id);
+    let current_exe = std::env::current_exe()
+        .unwrap_or_else(|_| PathBuf::from("patchlane"))
+        .display()
+        .to_string();
+    let script = concat!(
+        "printf 'launcher-contract run_id=%s agent=%s\\n' \"$3\" \"$4\"; ",
+        "printf 'launcher-contract stderr agent=%s\\n' \"$4\" >&2; ",
+        "\"$1\" agent-event phase --run-dir \"$2\" --run-id \"$3\" --agent-id \"$4\" --message \"$5\""
+    );
+    LaunchSpec {
+        program: "sh",
+        args: vec![
+            "-c".to_owned(),
+            script.to_owned(),
+            "patchlane-agent-launch".to_owned(),
+            current_exe,
+            request.run_dir.display().to_string(),
+            request.run_id.clone(),
+            request.role.clone(),
+            phase_message,
+        ],
+    }
 }
 
 pub fn spawn_worker(

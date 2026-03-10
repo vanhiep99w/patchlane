@@ -1,4 +1,5 @@
 use patchlane::store::run_store::{load_events, load_run, load_shards};
+use patchlane::orchestration::store::load_task_snapshot;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -137,4 +138,160 @@ fn readme_documents_the_local_cli_contract() {
     assert!(readme.contains("swarm pause run-active"));
     assert!(readme.contains("cargo test"));
     assert!(readme.contains("cargo run -- swarm run"));
+}
+
+#[test]
+fn cli_contract_covers_task_workflow_and_persisted_artifacts() {
+    let state_root = temp_root();
+    let task_root = state_root.join("tasks");
+
+    let output = run_command(&["task", "--runtime", "codex", "Ship orchestration flow"], &state_root, "success");
+    assert!(
+        output.status.success(),
+        "task command should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let mut run_dirs = fs::read_dir(&task_root)
+        .expect("task root should be readable")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("task root entries should load")
+        .into_iter()
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    run_dirs.sort();
+    assert_eq!(run_dirs.len(), 1, "expected one persisted task run");
+    assert!(task_root.is_dir(), "task runs should live under PATCHLANE_STATE_ROOT/tasks");
+    assert!(
+        run_dirs[0].starts_with(&task_root),
+        "task run should be created under the tasks namespace: {}",
+        run_dirs[0].display()
+    );
+    let top_level_entries = fs::read_dir(&state_root)
+        .expect("state root should still be readable")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("state root entries should load");
+    assert!(
+        top_level_entries.iter().any(|entry| entry.file_name() == "tasks"),
+        "state root should contain a dedicated tasks namespace"
+    );
+    assert!(
+        top_level_entries.iter().all(|entry| match entry.file_name().to_str() {
+            Some(name) => !name.starts_with("run-"),
+            None => true,
+        }),
+        "task runs must not create top-level run-* directories in the swarm namespace"
+    );
+
+    let snapshot = load_task_snapshot(&run_dirs[0]).expect("task snapshot should load");
+    assert_eq!(snapshot.run.runtime, "codex");
+    assert!(snapshot.run.run_id.starts_with("run-"));
+    assert_ne!(snapshot.run.run_id, "run-task-001");
+    assert_eq!(
+        run_dirs[0].file_name().and_then(|name| name.to_str()),
+        Some(snapshot.run.run_id.as_str())
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf-8");
+    assert!(stdout.contains("task queued: runtime: codex objective: Ship orchestration flow"));
+    assert!(
+        snapshot
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.path.contains("spec"))
+    );
+    assert!(
+        snapshot
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.path.contains("plan"))
+    );
+    assert!(
+        snapshot
+            .checkpoints
+            .iter()
+            .any(|checkpoint| checkpoint.phase == "after-brainstorming")
+    );
+    assert!(
+        snapshot
+            .checkpoints
+            .iter()
+            .any(|checkpoint| checkpoint.phase == "after-writing-plans")
+    );
+    assert!(
+        snapshot
+            .events
+            .iter()
+            .any(|event| event.payload_summary.contains("Approve? [y/n]"))
+    );
+    let logs_dir = run_dirs[0].join("logs");
+    assert!(logs_dir.is_dir(), "logs dir should exist");
+    let log_entries = fs::read_dir(&logs_dir)
+        .expect("logs dir should be readable")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("logs entries should load")
+        .into_iter()
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    assert!(
+        log_entries.iter().any(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with("-stdout.log"))
+        }),
+        "expected at least one stdout log file"
+    );
+    assert!(
+        log_entries.iter().any(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with("-stderr.log"))
+        }),
+        "expected at least one stderr log file"
+    );
+    let launched_stdout = logs_dir.join("shard-agent-agent-implement-stdout.log");
+    let launched_stderr = logs_dir.join("shard-agent-agent-implement-stderr.log");
+    assert!(launched_stdout.is_file(), "expected launched agent stdout log file");
+    assert!(launched_stderr.is_file(), "expected launched agent stderr log file");
+    let launched_stdout_contents =
+        fs::read_to_string(&launched_stdout).expect("launched stdout log should be readable");
+    let launched_stderr_contents =
+        fs::read_to_string(&launched_stderr).expect("launched stderr log should be readable");
+    assert!(
+        launched_stdout_contents.contains(&format!(
+            "launcher-contract run_id={}",
+            snapshot.run.run_id
+        )),
+        "expected launched stdout to include generated run id marker"
+    );
+    assert!(
+        launched_stderr_contents.contains("launcher-contract stderr agent=agent-implement"),
+        "expected launched stderr to include launched agent marker"
+    );
+    assert!(
+        snapshot
+            .events
+            .iter()
+            .any(|event| {
+                event.agent_id.as_deref() == Some("agent-implement")
+                    && event.event_type
+                        == patchlane::orchestration::model::AgentEventType::Phase
+                    && event.payload_summary
+                        == format!("launcher-contract:{}", snapshot.run.run_id)
+            }),
+        "expected launcher-injected agent-event path to persist a launched agent event"
+    );
+    assert!(
+        snapshot
+            .agents
+            .iter()
+            .any(|agent| {
+                agent.agent_id == "agent-implement"
+                    && agent.current_phase == format!("launcher-contract:{}", snapshot.run.run_id)
+                    && agent.current_state
+                        == patchlane::orchestration::model::OrchestratorState::Running
+            }),
+        "expected launched agent-event path to update persisted agent state"
+    );
+
+    fs::remove_dir_all(state_root).expect("temp root should be removable");
 }

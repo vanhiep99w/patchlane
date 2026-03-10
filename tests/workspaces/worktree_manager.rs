@@ -2,7 +2,10 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use patchlane::workspaces::worktree_manager::{allocate_workspace, WorkspaceError};
+use patchlane::workspaces::worktree_manager::{
+    allocate_workspace, allocate_workspace_for_subtask, SubtaskRisk, WorkspaceError,
+    WorkspacePolicy,
+};
 
 fn temp_root() -> PathBuf {
     let unique = SystemTime::now()
@@ -67,6 +70,52 @@ fn worktree_manager_surfaces_filesystem_errors_clearly() {
             assert!(path.ends_with("run-003/workspaces/shard-03"));
         }
     }
+
+    fs::remove_dir_all(root).expect("temp root should be removable");
+}
+
+#[test]
+fn worktree_manager_uses_session_root_for_low_risk_subtasks() {
+    let root = temp_root();
+
+    let allocation = allocate_workspace_for_subtask(
+        &root,
+        "run-004",
+        "brainstorm",
+        WorkspacePolicy::isolated_by_default(),
+        SubtaskRisk::Low,
+    )
+    .expect("workspace should allocate");
+
+    assert!(
+        allocation.path.ends_with("run-004/session-root"),
+        "low-risk subtask should stay in session root: {}",
+        allocation.path.display()
+    );
+    assert!(!allocation.isolated, "low-risk work should not be isolated");
+
+    fs::remove_dir_all(root).expect("temp root should be removable");
+}
+
+#[test]
+fn worktree_manager_uses_isolated_workspace_for_risky_subtasks() {
+    let root = temp_root();
+
+    let allocation = allocate_workspace_for_subtask(
+        &root,
+        "run-005",
+        "implementer",
+        WorkspacePolicy::isolated_by_default(),
+        SubtaskRisk::High,
+    )
+    .expect("workspace should allocate");
+
+    assert!(
+        allocation.path.ends_with("run-005/workspaces/shard-implementer"),
+        "risky subtask should get isolated workspace: {}",
+        allocation.path.display()
+    );
+    assert!(allocation.isolated, "high-risk work should be isolated");
 
     fs::remove_dir_all(root).expect("temp root should be removable");
 }

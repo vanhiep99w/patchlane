@@ -1,3 +1,4 @@
+pub(crate) mod agent_event;
 mod board;
 mod intervention_support;
 mod merge_approve;
@@ -8,6 +9,8 @@ mod resume;
 mod run;
 mod status;
 mod stop;
+mod task;
+mod tui;
 mod watch;
 mod web;
 
@@ -22,10 +25,14 @@ pub struct CommandOutcome {
 pub enum OutputStream {
     Stdout,
     Stderr,
+    Silent,
 }
 
 pub fn execute(cli: Cli) -> CommandOutcome {
     match cli.command {
+        TopLevelCommand::AgentEvent(command) => agent_event::execute(command),
+        TopLevelCommand::Task(task_command) => task::execute(task_command),
+        TopLevelCommand::Tui => tui::execute(),
         TopLevelCommand::Swarm(swarm) => match swarm.command {
             SwarmCommand::Run(run) => run::execute(run),
             SwarmCommand::Status => status::execute(),
@@ -51,6 +58,14 @@ impl CommandOutcome {
             message,
             exit_code: 0,
             stream: OutputStream::Stdout,
+        }
+    }
+
+    pub fn silent_success() -> Self {
+        Self {
+            message: String::new(),
+            exit_code: 0,
+            stream: OutputStream::Silent,
         }
     }
 

@@ -2,11 +2,13 @@ pub mod cli;
 pub mod commands;
 pub mod domain;
 pub mod events;
+pub mod orchestration;
 pub mod planner;
 pub mod renderers;
 pub mod runtime;
 pub mod services;
 pub mod store;
+pub mod tui;
 pub mod workspaces;
 pub mod workflow;
 

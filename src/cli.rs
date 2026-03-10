@@ -14,7 +14,32 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum TopLevelCommand {
+    AgentEvent(AgentEventCommand),
+    Task(TaskCommand),
+    Tui,
     Swarm(SwarmCommandGroup),
+}
+
+#[derive(Debug, Parser)]
+pub struct AgentEventCommand {
+    #[arg(value_name = "EVENT_TYPE")]
+    pub event_type: String,
+    #[arg(long, value_name = "RUN_DIR")]
+    pub run_dir: String,
+    #[arg(long, value_name = "RUN_ID")]
+    pub run_id: String,
+    #[arg(long, value_name = "AGENT_ID")]
+    pub agent_id: String,
+    #[arg(long, value_name = "MESSAGE")]
+    pub message: String,
+}
+
+#[derive(Debug, Parser)]
+pub struct TaskCommand {
+    #[arg(long, value_name = "RUNTIME")]
+    pub runtime: Option<Runtime>,
+    #[arg(value_name = "OBJECTIVE")]
+    pub objective: String,
 }
 
 #[derive(Debug, Parser)]

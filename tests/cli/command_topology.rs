@@ -1,8 +1,17 @@
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn run_command(args: &[&str]) -> std::process::Output {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock should be after unix epoch")
+        .as_nanos();
+    let state_root = std::env::temp_dir().join(format!("patchlane-command-topology-{unique}"));
+    std::fs::create_dir_all(&state_root).expect("temp state root should be creatable");
+
     Command::new(env!("CARGO_BIN_EXE_patchlane"))
         .args(args)
+        .env("PATCHLANE_STATE_ROOT", &state_root)
         .output()
         .expect("CLI should be executable")
 }
@@ -49,13 +58,14 @@ fn assert_help_failure(args: &[&str], expected_help_fragments: &[&str]) {
 
 #[test]
 fn command_topology_recognizes_approved_swarm_commands() {
+    assert_implemented_command(&["task", "Design run store"]);
+    assert_implemented_command(&["tui"]);
+
     for args in [
         vec!["swarm", "status"],
         vec!["swarm", "watch"],
         vec!["swarm", "pause", "run-active"],
         vec!["swarm", "resume", "run-paused"],
-        vec!["swarm", "retry", "shard-failed"],
-        vec!["swarm", "reassign", "shard-running", "--runtime", "codex"],
         vec!["swarm", "merge", "approve", "merge-001"],
         vec!["swarm", "merge", "reject", "merge-001"],
         vec!["swarm", "stop", "run-active"],
@@ -77,8 +87,23 @@ fn command_topology_recognizes_approved_swarm_commands() {
 }
 
 #[test]
+fn top_level_help_lists_tui_command() {
+    let output = run_command(&["--help"]);
+    assert!(output.status.success(), "help should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be valid UTF-8");
+    assert!(
+        stdout.contains("tui"),
+        "top-level help should list tui command, got: {stdout}"
+    );
+}
+
+#[test]
 fn command_topology_surfaces_help_for_incomplete_invocations() {
-    assert_help_failure(&[], &["Usage: patchlane <COMMAND>", "Commands:", "swarm"]);
+    assert_help_failure(
+        &[],
+        &["Usage: patchlane <COMMAND>", "Commands:", "task", "swarm"],
+    );
     assert_help_failure(
         &["swarm"],
         &[

@@ -23,6 +23,10 @@ fn bootstrap_cli_help_reports_current_surface() {
         stdout.contains("swarm"),
         "help output should expose the swarm command tree"
     );
+    assert!(
+        stdout.contains("task"),
+        "help output should expose the task command"
+    );
 }
 
 #[test]
@@ -50,6 +54,10 @@ fn bootstrap_cli_without_args_reports_command_surface_help() {
     assert!(
         stderr.contains("swarm"),
         "bare invocation should expose the swarm namespace"
+    );
+    assert!(
+        stderr.contains("task"),
+        "bare invocation should expose the task command"
     );
 }
 
