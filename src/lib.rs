@@ -2,6 +2,7 @@ pub mod cli;
 pub mod commands;
 pub mod domain;
 pub mod events;
+pub mod planner;
 pub mod renderers;
 pub mod services;
 pub mod store;
