@@ -340,11 +340,25 @@ fn retry_stops_before_launch_when_prelaunch_metadata_persistence_fails() {
         .find(|shard| shard.shard_id == "03")
         .expect("shard should exist");
     assert_eq!(shard.pid, None);
-    assert_eq!(shard.state, "queued");
+    assert_eq!(shard.state, "failed");
     let attempts = load_shard_attempts(&latest_run, "03").expect("attempts should load");
     assert_eq!(attempts.len(), 2);
     assert_eq!(attempts[1].pid, None);
-    assert_eq!(attempts[1].state, "queued");
+    assert_eq!(attempts[1].state, "failed");
+
+    fs::remove_dir(run_dir.join("events.jsonl")).expect("blocked events path should be removable");
+
+    let retry_again = run_command(
+        &["swarm", "retry", "03"],
+        Some(&state_root),
+        Some("success"),
+        false,
+    );
+    assert_eq!(
+        retry_again.status.code(),
+        Some(0),
+        "shard should remain retryable after prelaunch failure"
+    );
 
     fs::remove_dir_all(state_root).expect("temp root should be removable");
 }

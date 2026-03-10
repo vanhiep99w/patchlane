@@ -214,6 +214,7 @@ fn retry_persisted_shard(shard_id: &str) -> Option<CommandOutcome> {
         )));
     }
     if let Err(error) = write_shard_attempts(&run_dir, shard_id, &attempts) {
+        rollback_prelaunch_retry_state(&run_dir, shard, &mut attempts, shard_id);
         return Some(CommandOutcome::error(format!(
             "error: failed to persist shard attempts: {error}"
         )));
@@ -226,6 +227,7 @@ fn retry_persisted_shard(shard_id: &str) -> Option<CommandOutcome> {
             message: format!("retry requested for shard {}", shard_id),
         },
     ) {
+        rollback_prelaunch_retry_state(&run_dir, shard, &mut attempts, shard_id);
         return Some(CommandOutcome::error(format!(
             "error: failed to record retry request: {error}"
         )));
@@ -523,6 +525,22 @@ fn rollback_retry_launch_state(
     launch: &mut ManagedLaunchOutcome,
 ) {
     terminate_child(launch);
+    shard.pid = None;
+    shard.state = "failed".to_owned();
+    if let Some(last_attempt) = attempts.last_mut() {
+        last_attempt.pid = None;
+        last_attempt.state = "failed".to_owned();
+    }
+    let _ = write_shard(run_dir, shard);
+    let _ = write_shard_attempts(run_dir, shard_id, attempts);
+}
+
+fn rollback_prelaunch_retry_state(
+    run_dir: &PathBuf,
+    shard: &mut PersistedShard,
+    attempts: &mut Vec<PersistedShardAttempt>,
+    shard_id: &str,
+) {
     shard.pid = None;
     shard.state = "failed".to_owned();
     if let Some(last_attempt) = attempts.last_mut() {

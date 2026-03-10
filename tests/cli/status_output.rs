@@ -128,6 +128,61 @@ Next
     fs::remove_dir_all(state_root).expect("temp root should be removable");
 }
 
+#[test]
+fn status_output_treats_running_shards_as_active_progress() {
+    let state_root = temp_root();
+    let latest_run_dir = create_run(
+        &state_root,
+        &PersistedRun {
+            run_id: "run-004".to_owned(),
+            runtime: "codex".to_owned(),
+            objective: "demo objective for run-004".to_owned(),
+            shard_count: 2,
+        },
+        &[
+            PersistedShard {
+                shard_id: "01".to_owned(),
+                runtime: "codex".to_owned(),
+                pid: Some(5252),
+                state: "running".to_owned(),
+                workspace: "run-004/workspace-01".to_owned(),
+            },
+            PersistedShard {
+                shard_id: "02".to_owned(),
+                runtime: "codex".to_owned(),
+                pid: Some(5353),
+                state: "running".to_owned(),
+                workspace: "run-004/workspace-02".to_owned(),
+            },
+        ],
+    )
+    .expect("fixture run should persist");
+    append_event(
+        &latest_run_dir,
+        &PersistedEvent {
+            timestamp: "2026-03-10T10:09:00Z".to_owned(),
+            shard_id: Some("02".to_owned()),
+            message: "shard 02 running worker loop".to_owned(),
+        },
+    )
+    .expect("running event should persist");
+
+    let output = run_command(&["swarm", "status"], &state_root);
+    assert!(
+        output.status.success(),
+        "expected swarm status to succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be valid UTF-8");
+    assert!(
+        stdout.starts_with("Run\n  run-004 (active)\n"),
+        "running shards should keep the run active, got {stdout:?}"
+    );
+
+    fs::remove_dir_all(state_root).expect("temp root should be removable");
+}
+
 fn create_fixture_run(
     state_root: &PathBuf,
     run_id: &str,

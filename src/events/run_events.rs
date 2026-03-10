@@ -82,7 +82,10 @@ fn derive_run_state(shards: &[PersistedShard]) -> String {
         "blocked".to_owned()
     } else if shards.iter().all(|shard| shard.state == "completed") {
         "completed".to_owned()
-    } else if shards.iter().any(|shard| shard.state == "launched") {
+    } else if shards
+        .iter()
+        .any(|shard| shard.state == "launched" || shard.state == "running")
+    {
         "active".to_owned()
     } else {
         "queued".to_owned()
