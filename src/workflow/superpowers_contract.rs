@@ -41,7 +41,7 @@ pub fn fixture_stage_event_lines() -> Vec<EventLine> {
     ]
     .into_iter()
     .map(|(timestamp, stage)| EventLine {
-        timestamp,
+        timestamp: timestamp.to_owned(),
         message: format!("workflow stage: {}", cli_label_for_stage(stage)),
     })
     .collect()

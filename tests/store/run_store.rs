@@ -34,11 +34,15 @@ fn run_store_persists_run_shards_and_events() {
     let shards = vec![
         PersistedShard {
             shard_id: "01".to_owned(),
+            runtime: "codex".to_owned(),
+            pid: Some(1111),
             state: "queued".to_owned(),
             workspace: "workspace-01".to_owned(),
         },
         PersistedShard {
             shard_id: "02".to_owned(),
+            runtime: "codex".to_owned(),
+            pid: None,
             state: "queued".to_owned(),
             workspace: "workspace-02".to_owned(),
         },

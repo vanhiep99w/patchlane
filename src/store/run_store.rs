@@ -14,6 +14,9 @@ pub struct PersistedRun {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedShard {
     pub shard_id: String,
+    pub runtime: String,
+    #[serde(default)]
+    pub pid: Option<u32>,
     pub state: String,
     pub workspace: String,
 }
@@ -87,6 +90,19 @@ pub fn load_events(run_dir: &Path) -> io::Result<Vec<PersistedEvent>> {
         .filter(|line| !line.is_empty())
         .map(|line| serde_json::from_slice(line).map_err(io::Error::other))
         .collect::<io::Result<Vec<_>>>()
+}
+
+pub fn latest_run_dir(root: &Path) -> io::Result<PathBuf> {
+    let mut run_dirs = fs::read_dir(root)?
+        .collect::<io::Result<Vec<_>>>()?
+        .into_iter()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect::<Vec<_>>();
+    run_dirs.sort();
+    run_dirs
+        .pop()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no persisted runs found"))
 }
 
 fn write_json<T: Serialize>(path: PathBuf, value: &T) -> io::Result<()> {

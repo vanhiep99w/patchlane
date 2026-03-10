@@ -34,6 +34,8 @@ pub fn execute(command: RunCommand) -> CommandOutcome {
                 })?;
             Ok(PersistedShard {
                 shard_id: shard.id.to_owned(),
+                runtime: runtime_label(&command.runtime).to_owned(),
+                pid: None,
                 state: "queued".to_owned(),
                 workspace: workspace.display().to_string(),
             })
@@ -85,7 +87,8 @@ pub fn execute(command: RunCommand) -> CommandOutcome {
         let args = spec.args.iter().map(String::as_str).collect::<Vec<_>>();
 
         match launch_worker(&request, spec.program, &args) {
-            Ok(_) => {
+            Ok(outcome) => {
+                persisted.pid = Some(outcome.pid);
                 persisted.state = "launched".to_owned();
                 let _ = write_shard(&run_dir, persisted);
                 let _ = append_event(

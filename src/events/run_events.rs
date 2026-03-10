@@ -1,99 +1,159 @@
+use crate::store::run_store::{PersistedEvent, PersistedRun, PersistedShard};
+
 pub struct StatusSnapshot {
     pub run: RunSnapshot,
-    pub placement: PlacementSnapshot,
     pub shards: Vec<ShardSnapshot>,
-    pub blockers: BlockerSummary,
-    pub merge_queue: MergeQueueSummary,
+    pub blockers: Vec<String>,
     pub latest_event: EventLine,
-    pub suggested_next_command: &'static str,
+    pub suggested_next_command: String,
 }
 
 pub struct RunSnapshot {
-    pub state: &'static str,
-    pub objective: &'static str,
-}
-
-pub struct PlacementSnapshot {
-    pub state: &'static str,
-    pub reason: &'static str,
-    pub block_reason: Option<&'static str>,
+    pub id: String,
+    pub runtime: String,
+    pub objective: String,
+    pub state: String,
 }
 
 pub struct ShardSnapshot {
-    pub id: &'static str,
-    pub state: &'static str,
-    pub branch: &'static str,
-    pub owner: &'static str,
-    pub blockers: &'static str,
-}
-
-pub struct BlockerSummary {
-    pub headline: &'static str,
-    pub items: Vec<&'static str>,
-}
-
-pub struct MergeQueueSummary {
-    pub headline: &'static str,
-    pub ready: Vec<&'static str>,
-    pub pending: Vec<&'static str>,
+    pub id: String,
+    pub runtime: String,
+    pub pid: String,
+    pub state: String,
+    pub workspace: String,
+    pub detail: String,
 }
 
 pub struct EventLine {
-    pub timestamp: &'static str,
+    pub timestamp: String,
     pub message: String,
 }
 
-pub fn fixture_status_snapshot() -> StatusSnapshot {
+pub fn derive_status_snapshot(
+    run: PersistedRun,
+    shards: Vec<PersistedShard>,
+    events: Vec<PersistedEvent>,
+) -> StatusSnapshot {
+    let latest_event = events.last().map(event_line).unwrap_or_else(|| EventLine {
+        timestamp: "none".to_owned(),
+        message: "no recorded events".to_owned(),
+    });
+    let blockers = collect_blockers(&shards, &events);
+    let suggested_next_command = suggested_next_command(&shards);
+
     StatusSnapshot {
         run: RunSnapshot {
-            state: "active",
-            objective: "Land compact status and watch surfaces",
+            id: run.run_id,
+            runtime: run.runtime,
+            objective: run.objective,
+            state: derive_run_state(&shards),
         },
-        placement: PlacementSnapshot {
-            state: "worktree",
-            reason: "multiple writable shards need isolated worktrees",
-            block_reason: None,
+        shards: shards.into_iter().map(|shard| shard_snapshot(&shard, &events)).collect(),
+        blockers,
+        latest_event,
+        suggested_next_command,
+    }
+}
+
+pub fn empty_status_snapshot() -> StatusSnapshot {
+    StatusSnapshot {
+        run: RunSnapshot {
+            id: "none".to_owned(),
+            runtime: "none".to_owned(),
+            objective: "no persisted runs found".to_owned(),
+            state: "idle".to_owned(),
         },
-        shards: vec![
-            ShardSnapshot {
-                id: "01",
-                state: "done",
-                branch: "feat/opening-block",
-                owner: "agent-a",
-                blockers: "none",
-            },
-            ShardSnapshot {
-                id: "02",
-                state: "running",
-                branch: "feat/status-snapshot",
-                owner: "agent-b",
-                blockers: "none",
-            },
-            ShardSnapshot {
-                id: "03",
-                state: "blocked",
-                branch: "feat/watch-events",
-                owner: "agent-c",
-                blockers: "waiting on review",
-            },
-        ],
-        blockers: BlockerSummary {
-            headline: "1 active blocker",
-            items: vec!["shard 03 waiting on review from maintainer"],
-        },
-        merge_queue: MergeQueueSummary {
-            headline: "1 ready, 1 pending",
-            ready: vec!["shard 01 feat/opening-block"],
-            pending: vec!["shard 02 feat/status-snapshot"],
-        },
+        shards: Vec::new(),
+        blockers: Vec::new(),
         latest_event: EventLine {
-            timestamp: "2026-03-09T10:18:00Z",
-            message: "merge queue ready for shard 01 feat/opening-block".to_owned(),
+            timestamp: "none".to_owned(),
+            message: "run `patchlane swarm run --runtime <codex|claude> <objective>` to start a run"
+                .to_owned(),
         },
-        suggested_next_command: "patchlane swarm watch",
+        suggested_next_command: "patchlane swarm run --runtime <codex|claude> <objective>"
+            .to_owned(),
+    }
+}
+
+fn derive_run_state(shards: &[PersistedShard]) -> String {
+    if shards.iter().any(|shard| shard.state == "failed") {
+        "degraded".to_owned()
+    } else if shards.iter().any(|shard| shard.state == "blocked") {
+        "blocked".to_owned()
+    } else if shards.iter().all(|shard| shard.state == "completed") {
+        "completed".to_owned()
+    } else if shards.iter().any(|shard| shard.state == "launched") {
+        "active".to_owned()
+    } else {
+        "queued".to_owned()
     }
 }
 
 pub fn fixture_watch_events() -> Vec<EventLine> {
     crate::workflow::superpowers_contract::fixture_stage_event_lines()
+}
+
+fn shard_snapshot(shard: &PersistedShard, events: &[PersistedEvent]) -> ShardSnapshot {
+    ShardSnapshot {
+        id: shard.shard_id.clone(),
+        runtime: shard.runtime.clone(),
+        pid: shard
+            .pid
+            .map(|pid| pid.to_string())
+            .unwrap_or_else(|| "-".to_owned()),
+        state: shard.state.clone(),
+        workspace: shard.workspace.clone(),
+        detail: shard_detail(shard, events),
+    }
+}
+
+fn shard_detail(shard: &PersistedShard, events: &[PersistedEvent]) -> String {
+    if shard.state == "failed" || shard.state == "blocked" {
+        return find_latest_shard_event(events, &shard.shard_id)
+            .map(|event| event.message.clone())
+            .unwrap_or_else(|| "no detail recorded".to_owned());
+    }
+
+    "none".to_owned()
+}
+
+fn collect_blockers(shards: &[PersistedShard], events: &[PersistedEvent]) -> Vec<String> {
+    shards
+        .iter()
+        .filter(|shard| shard.state == "failed" || shard.state == "blocked")
+        .map(|shard| {
+            let detail = find_latest_shard_event(events, &shard.shard_id)
+                .map(|event| event.message.clone())
+                .unwrap_or_else(|| "no detail recorded".to_owned());
+            format!("shard {} {}", shard.shard_id, detail)
+        })
+        .collect()
+}
+
+fn suggested_next_command(shards: &[PersistedShard]) -> String {
+    if shards
+        .iter()
+        .any(|shard| shard.state == "failed" || shard.state == "blocked")
+    {
+        "patchlane swarm retry <shard-id>".to_owned()
+    } else {
+        "patchlane swarm watch".to_owned()
+    }
+}
+
+fn event_line(event: &PersistedEvent) -> EventLine {
+    EventLine {
+        timestamp: event.timestamp.clone(),
+        message: event.message.clone(),
+    }
+}
+
+fn find_latest_shard_event<'a>(
+    events: &'a [PersistedEvent],
+    shard_id: &str,
+) -> Option<&'a PersistedEvent> {
+    events
+        .iter()
+        .rev()
+        .find(|event| event.shard_id.as_deref() == Some(shard_id))
 }
