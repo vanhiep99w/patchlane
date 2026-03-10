@@ -36,6 +36,24 @@ pub enum RuntimeLaunchError {
 }
 
 pub fn build_launch_spec(request: &LaunchRequest) -> LaunchSpec {
+    if let Ok(mode) = std::env::var("PATCHLANE_TEST_RUNTIME_MODE") {
+        return match mode.as_str() {
+            "success" => LaunchSpec {
+                program: "sh",
+                args: vec!["-c".to_owned(), "printf patchlane-worker".to_owned()],
+            },
+            "missing_binary" => LaunchSpec {
+                program: "__patchlane_missing_binary__",
+                args: vec!["simulate-worker".to_owned()],
+            },
+            _ => build_default_launch_spec(request),
+        };
+    }
+
+    build_default_launch_spec(request)
+}
+
+fn build_default_launch_spec(request: &LaunchRequest) -> LaunchSpec {
     match request.runtime {
         Runtime::Codex => LaunchSpec {
             program: "codex",

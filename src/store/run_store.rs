@@ -41,6 +41,10 @@ pub fn create_run(
     Ok(run_dir)
 }
 
+pub fn write_shard(run_dir: &Path, shard: &PersistedShard) -> io::Result<()> {
+    write_json(run_dir.join(format!("shard-{}.json", shard.shard_id)), shard)
+}
+
 pub fn append_event(run_dir: &Path, event: &PersistedEvent) -> io::Result<()> {
     let mut file = OpenOptions::new()
         .create(true)
