@@ -125,8 +125,15 @@ fn readme_documents_the_local_cli_contract() {
     let readme = include_str!("../../README.md");
 
     assert!(readme.contains("swarm run"));
+    assert!(readme.contains("--runtime <codex|claude>"));
+    assert!(readme.contains("codex CLI"));
+    assert!(readme.contains("claude CLI"));
     assert!(readme.contains("swarm status"));
     assert!(readme.contains("swarm watch"));
+    assert!(readme.contains("PATCHLANE_STATE_ROOT"));
+    assert!(readme.contains(".patchlane/"));
+    assert!(readme.contains("events.jsonl"));
+    assert!(readme.contains("logs/"));
     assert!(readme.contains("swarm pause run-active"));
     assert!(readme.contains("cargo test"));
     assert!(readme.contains("cargo run -- swarm run"));

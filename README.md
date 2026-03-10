@@ -8,12 +8,22 @@ Patchlane is a Rust CLI project for agent-native swarm orchestration. The curren
 - issue practical intervention commands such as `swarm pause run-active`
 - open broader read-mostly overview surfaces with `swarm board` and `swarm web`
 
+## Runtime Prerequisites
+
+Patchlane launches local worker CLIs directly from this machine. Install at least one of these before running a real swarm:
+
+- codex CLI for `--runtime codex`
+- claude CLI for `--runtime claude`
+
+If you want persisted run state outside the current repository, set `PATCHLANE_STATE_ROOT` to a writable directory. Otherwise Patchlane stores local state under `.patchlane/` in the current working directory.
+
 ## Local Usage
 
 Run the primary contract from the repository root:
 
 ```bash
-cargo run -- swarm run "Land compact status and watch surfaces"
+cargo run -- swarm run --runtime codex "Land compact status and watch surfaces"
+cargo run -- swarm run --runtime claude "Land compact status and watch surfaces"
 cargo run -- swarm status
 cargo run -- swarm watch
 cargo run -- swarm pause run-active
@@ -31,7 +41,7 @@ Intervention commands currently use deterministic fixture ids so the local contr
 
 The CLI currently exposes these command groups:
 
-- `swarm run <OBJECTIVE>`
+- `swarm run --runtime <codex|claude> <OBJECTIVE>`
 - `swarm status`
 - `swarm watch`
 - `swarm pause <TARGET_ID>`
@@ -43,6 +53,28 @@ The CLI currently exposes these command groups:
 - `swarm stop <RUN_ID>`
 - `swarm board`
 - `swarm web`
+
+## Local Artifacts
+
+Each run creates a directory under `PATCHLANE_STATE_ROOT` or `.patchlane/` with:
+
+- `run.json` for top-level run metadata
+- `shard-<id>.json` for shard runtime, pid, workspace, and state
+- `events.jsonl` for lifecycle events consumed by `swarm watch`
+- `shard-<id>-attempts.json` when `swarm retry <shard-id>` records retry history
+- `logs/` with per-shard stdout/stderr log files
+
+## Manual QA
+
+Use a real local runtime to verify the operator loop:
+
+```bash
+cargo run -- swarm run --runtime codex "Verify local worker launch"
+cargo run -- swarm status
+cargo run -- swarm watch
+```
+
+Then inspect `.patchlane/` (or `PATCHLANE_STATE_ROOT`) to confirm a run directory was created with `run.json`, shard files, `events.jsonl`, and `logs/`. If a shard fails, retry it with `cargo run -- swarm retry <shard-id>` and confirm a `shard-<id>-attempts.json` file appears.
 
 ## Development
 
