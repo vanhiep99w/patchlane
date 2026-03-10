@@ -68,8 +68,9 @@ fn command_topology_recognizes_approved_swarm_commands() {
     assert_help_failure(
         &["swarm", "run"],
         &[
-            "Usage: patchlane swarm run <OBJECTIVE>",
+            "Usage: patchlane swarm run --runtime <RUNTIME> <OBJECTIVE>",
             "error: the following required arguments were not provided:",
+            "--runtime <RUNTIME>",
             "<OBJECTIVE>",
         ],
     );

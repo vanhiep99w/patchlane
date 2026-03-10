@@ -52,3 +52,8 @@ fn bootstrap_cli_without_args_reports_command_surface_help() {
         "bare invocation should expose the swarm namespace"
     );
 }
+
+#[test]
+fn bootstrap_library_banner_remains_stable_after_store_wiring() {
+    assert_eq!(patchlane::bootstrap_banner(), "Patchlane CLI bootstrap");
+}

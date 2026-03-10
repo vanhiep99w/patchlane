@@ -1,10 +1,40 @@
+use patchlane::store::run_store::{
+    append_event, create_run, latest_run_dir, load_events, load_shard_attempts, load_shards,
+    write_shard_attempts, PersistedEvent, PersistedRun, PersistedShard, PersistedShardAttempt,
+};
+use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-fn run_command(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_patchlane"))
-        .args(args)
-        .output()
-        .expect("CLI should be executable")
+fn temp_root() -> PathBuf {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock should be after unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("patchlane-intervention-{unique}"));
+    fs::create_dir_all(&root).expect("temp root should be creatable");
+    root
+}
+
+fn run_command(
+    args: &[&str],
+    state_root: Option<&PathBuf>,
+    launch_mode: Option<&str>,
+    finalize_fail: bool,
+) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_patchlane"));
+    command.args(args);
+    if let Some(root) = state_root {
+        command.env("PATCHLANE_STATE_ROOT", root);
+    }
+    if let Some(mode) = launch_mode {
+        command.env("PATCHLANE_TEST_RUNTIME_MODE", mode);
+    }
+    if finalize_fail {
+        command.env("PATCHLANE_TEST_RETRY_FINALIZE_FAIL", "1");
+    }
+    command.output().expect("CLI should be executable")
 }
 
 #[test]
@@ -49,7 +79,7 @@ fn intervention_commands_return_only_operator_visible_results() {
     ];
 
     for (args, expected_code, stdout_prefix, stderr_prefix) in cases {
-        let output = run_command(&args);
+        let output = run_command(&args, None, None, false);
         assert_eq!(
             output.status.code(),
             Some(expected_code),
@@ -89,13 +119,13 @@ fn intervention_commands_return_only_operator_visible_results() {
 
 #[test]
 fn intervention_commands_are_idempotent_from_the_operator_perspective() {
-    let output = run_command(&["swarm", "pause", "run-paused"]);
+    let output = run_command(&["swarm", "pause", "run-paused"], None, None, false);
     assert_eq!(output.status.code(), Some(0));
     let stdout = String::from_utf8(output.stdout).expect("stdout should be valid UTF-8");
     assert!(stdout.contains("Result\n  applied"));
     assert!(stdout.contains("target is already paused"));
 
-    let output = run_command(&["swarm", "merge", "approve", "merge-applied"]);
+    let output = run_command(&["swarm", "merge", "approve", "merge-applied"], None, None, false);
     assert_eq!(output.status.code(), Some(0));
     let stdout = String::from_utf8(output.stdout).expect("stdout should be valid UTF-8");
     assert!(stdout.contains("Result\n  applied"));
@@ -104,13 +134,18 @@ fn intervention_commands_are_idempotent_from_the_operator_perspective() {
 
 #[test]
 fn intervention_failures_surface_explicit_failure_reasons() {
-    let output = run_command(&["swarm", "resume", "run-done"]);
+    let output = run_command(&["swarm", "resume", "run-done"], None, None, false);
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8(output.stderr).expect("stderr should be valid UTF-8");
     assert!(stderr.contains("Result\n  failed"));
     assert!(stderr.contains("invalid state: run is succeeded and cannot resume"));
 
-    let output = run_command(&["swarm", "reassign", "shard-running", "--runtime", "gemini"]);
+    let output = run_command(
+        &["swarm", "reassign", "shard-running", "--runtime", "gemini"],
+        None,
+        None,
+        false,
+    );
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8(output.stderr).expect("stderr should be valid UTF-8");
     assert!(stderr.contains("Result\n  failed"));
@@ -119,9 +154,270 @@ fn intervention_failures_surface_explicit_failure_reasons() {
 
 #[test]
 fn merge_commands_require_a_concrete_merge_unit_id() {
-    let output = run_command(&["swarm", "merge", "reject", "run-active"]);
+    let output = run_command(&["swarm", "merge", "reject", "run-active"], None, None, false);
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8(output.stderr).expect("stderr should be valid UTF-8");
     assert!(stderr.contains("Result\n  failed"));
     assert!(stderr.contains("missing id: merge commands require a concrete merge unit id"));
+}
+
+#[test]
+fn retry_relaunches_a_failed_persisted_shard_with_new_pid_and_attempt_history() {
+    let state_root = temp_root();
+    let run_dir = create_run(
+        &state_root,
+        &PersistedRun {
+            run_id: "run-001".to_owned(),
+            runtime: "codex".to_owned(),
+            objective: "relaunch failed shard".to_owned(),
+            shard_count: 1,
+        },
+        &[PersistedShard {
+            shard_id: "03".to_owned(),
+            runtime: "codex".to_owned(),
+            pid: Some(1111),
+            state: "failed".to_owned(),
+            workspace: "workspace-03".to_owned(),
+        }],
+    )
+    .expect("fixture run should persist");
+    append_event(
+        &run_dir,
+        &PersistedEvent {
+            timestamp: "2026-03-10T11:00:00Z".to_owned(),
+            shard_id: Some("03".to_owned()),
+            message: "spawn failure for shard 03 using codex: missing binary".to_owned(),
+        },
+    )
+    .expect("failure event should persist");
+    write_shard_attempts(
+        &run_dir,
+        "03",
+        &[PersistedShardAttempt {
+            attempt: 1,
+            pid: Some(1111),
+            state: "failed".to_owned(),
+        }],
+    )
+    .expect("attempt history should persist");
+
+    let output = run_command(
+        &["swarm", "retry", "03"],
+        Some(&state_root),
+        Some("success"),
+        false,
+    );
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be valid UTF-8");
+    assert!(stdout.contains("Result\n  queued"));
+    assert!(stdout.contains("Action\n  retry"));
+    assert!(stdout.contains("Target\n  03"));
+
+    let latest_run = latest_run_dir(&state_root).expect("latest run dir should load");
+    let shards = load_shards(&latest_run).expect("shards should load");
+    let retried = shards
+        .into_iter()
+        .find(|shard| shard.shard_id == "03")
+        .expect("retried shard should exist");
+    let new_pid = retried.pid.expect("retried shard should have new pid");
+    assert_ne!(new_pid, 1111);
+    assert_eq!(retried.state, "launched");
+
+    let attempts = load_shard_attempts(&latest_run, "03").expect("attempts should load");
+    assert_eq!(attempts.len(), 2);
+    assert_eq!(attempts[0].attempt, 1);
+    assert_eq!(attempts[0].pid, Some(1111));
+    assert_eq!(attempts[0].state, "failed");
+    assert_eq!(attempts[1].attempt, 2);
+    assert_eq!(attempts[1].pid, Some(new_pid));
+    assert_eq!(attempts[1].state, "launched");
+
+    let events = load_events(&latest_run).expect("events should load");
+    assert!(
+        events
+            .iter()
+            .any(|event| event.message.contains("retried shard 03 with pid")),
+        "retry event should be recorded, got {:?}",
+        events
+    );
+
+    fs::remove_dir_all(state_root).expect("temp root should be removable");
+}
+
+#[test]
+fn retry_rejects_corrupted_attempt_history_instead_of_silently_reseeding() {
+    let state_root = temp_root();
+    let run_dir = create_run(
+        &state_root,
+        &PersistedRun {
+            run_id: "run-001".to_owned(),
+            runtime: "codex".to_owned(),
+            objective: "relaunch failed shard".to_owned(),
+            shard_count: 1,
+        },
+        &[PersistedShard {
+            shard_id: "03".to_owned(),
+            runtime: "codex".to_owned(),
+            pid: Some(1111),
+            state: "failed".to_owned(),
+            workspace: "workspace-03".to_owned(),
+        }],
+    )
+    .expect("fixture run should persist");
+    fs::write(run_dir.join("shard-03-attempts.json"), "{not-json")
+        .expect("corrupted attempts file should be writable");
+
+    let output = run_command(
+        &["swarm", "retry", "03"],
+        Some(&state_root),
+        Some("success"),
+        false,
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be valid UTF-8");
+    assert!(
+        stderr.contains("failed to load shard attempts"),
+        "expected corrupted attempts error, got {stderr:?}"
+    );
+
+    fs::remove_dir_all(state_root).expect("temp root should be removable");
+}
+
+#[test]
+fn retry_stops_before_launch_when_prelaunch_metadata_persistence_fails() {
+    let state_root = temp_root();
+    let run_dir = create_run(
+        &state_root,
+        &PersistedRun {
+            run_id: "run-001".to_owned(),
+            runtime: "codex".to_owned(),
+            objective: "relaunch failed shard".to_owned(),
+            shard_count: 1,
+        },
+        &[PersistedShard {
+            shard_id: "03".to_owned(),
+            runtime: "codex".to_owned(),
+            pid: Some(1111),
+            state: "failed".to_owned(),
+            workspace: "workspace-03".to_owned(),
+        }],
+    )
+    .expect("fixture run should persist");
+    write_shard_attempts(
+        &run_dir,
+        "03",
+        &[PersistedShardAttempt {
+            attempt: 1,
+            pid: Some(1111),
+            state: "failed".to_owned(),
+        }],
+    )
+    .expect("attempt history should persist");
+    fs::remove_file(run_dir.join("events.jsonl")).ok();
+    fs::create_dir(run_dir.join("events.jsonl")).expect("events path should be blocked by directory");
+
+    let output = run_command(
+        &["swarm", "retry", "03"],
+        Some(&state_root),
+        Some("success"),
+        false,
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be valid UTF-8");
+    assert!(
+        stderr.contains("failed to record retry request"),
+        "expected prelaunch persistence error, got {stderr:?}"
+    );
+    assert!(
+        !run_dir.join("logs").exists(),
+        "worker launch should not start when prelaunch persistence fails"
+    );
+
+    let latest_run = latest_run_dir(&state_root).expect("latest run dir should load");
+    let shard = load_shards(&latest_run)
+        .expect("shards should load")
+        .into_iter()
+        .find(|shard| shard.shard_id == "03")
+        .expect("shard should exist");
+    assert_eq!(shard.pid, None);
+    assert_eq!(shard.state, "failed");
+    let attempts = load_shard_attempts(&latest_run, "03").expect("attempts should load");
+    assert_eq!(attempts.len(), 2);
+    assert_eq!(attempts[1].pid, None);
+    assert_eq!(attempts[1].state, "failed");
+
+    fs::remove_dir(run_dir.join("events.jsonl")).expect("blocked events path should be removable");
+
+    let retry_again = run_command(
+        &["swarm", "retry", "03"],
+        Some(&state_root),
+        Some("success"),
+        false,
+    );
+    assert_eq!(
+        retry_again.status.code(),
+        Some(0),
+        "shard should remain retryable after prelaunch failure"
+    );
+
+    fs::remove_dir_all(state_root).expect("temp root should be removable");
+}
+
+#[test]
+fn retry_rolls_back_launched_metadata_when_postspawn_finalization_fails() {
+    let state_root = temp_root();
+    let run_dir = create_run(
+        &state_root,
+        &PersistedRun {
+            run_id: "run-001".to_owned(),
+            runtime: "codex".to_owned(),
+            objective: "relaunch failed shard".to_owned(),
+            shard_count: 1,
+        },
+        &[PersistedShard {
+            shard_id: "03".to_owned(),
+            runtime: "codex".to_owned(),
+            pid: Some(1111),
+            state: "failed".to_owned(),
+            workspace: "workspace-03".to_owned(),
+        }],
+    )
+    .expect("fixture run should persist");
+    write_shard_attempts(
+        &run_dir,
+        "03",
+        &[PersistedShardAttempt {
+            attempt: 1,
+            pid: Some(1111),
+            state: "failed".to_owned(),
+        }],
+    )
+    .expect("attempt history should persist");
+    let output = run_command(
+        &["swarm", "retry", "03"],
+        Some(&state_root),
+        Some("success"),
+        true,
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be valid UTF-8");
+    assert!(
+        stderr.contains("failed to finalize retried shard launch"),
+        "expected postspawn finalization error, got {stderr:?}"
+    );
+
+    let latest_run = latest_run_dir(&state_root).expect("latest run dir should load");
+    let shard = load_shards(&latest_run)
+        .expect("shards should load")
+        .into_iter()
+        .find(|shard| shard.shard_id == "03")
+        .expect("shard should exist");
+    assert_eq!(shard.pid, None);
+    assert_eq!(shard.state, "failed");
+    let attempts = load_shard_attempts(&latest_run, "03").expect("attempts should load");
+    assert_eq!(attempts.len(), 2);
+    assert_eq!(attempts[1].pid, None);
+    assert_eq!(attempts[1].state, "failed");
+
+    fs::remove_dir_all(state_root).expect("temp root should be removable");
 }

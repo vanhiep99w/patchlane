@@ -1,6 +1,16 @@
 use crate::commands::CommandOutcome;
+use crate::cli::Runtime;
 use crate::domain::run::RunState;
 use crate::domain::shard::ShardState;
+use crate::planner::shard_planner::plan_shards;
+use crate::runtime::launcher::{build_launch_spec, spawn_worker, ManagedLaunchOutcome, LaunchRequest};
+use crate::store::run_store::{
+    append_event, latest_run_dir, load_run, load_shard_attempts, load_shards, write_shard,
+    write_shard_attempts, PersistedEvent, PersistedShard, PersistedShardAttempt,
+};
+use std::io;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub enum InterventionAction {
     Pause,
@@ -97,6 +107,10 @@ pub fn run_intervention(action: InterventionAction, target_id: &str) -> CommandO
 }
 
 pub fn run_retry_intervention(shard_id: &str) -> CommandOutcome {
+    if let Some(outcome) = retry_persisted_shard(shard_id) {
+        return outcome;
+    }
+
     let target = match lookup_target(shard_id) {
         Ok(target) => target,
         Err(reason) => return failed("retry", shard_id, reason),
@@ -121,6 +135,154 @@ pub fn run_retry_intervention(shard_id: &str) -> CommandOutcome {
             "invalid state: retry only accepts shard ids".to_owned(),
         ),
     }
+}
+
+fn retry_persisted_shard(shard_id: &str) -> Option<CommandOutcome> {
+    let state_root = state_root();
+    let run_dir = match latest_run_dir(&state_root) {
+        Ok(run_dir) => run_dir,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
+        Err(error) => return Some(CommandOutcome::error(format!("error: {error}"))),
+    };
+
+    let run = match load_run(&run_dir) {
+        Ok(run) => run,
+        Err(error) => {
+            return Some(CommandOutcome::error(format!(
+                "error: failed to load run: {error}"
+            )))
+        }
+    };
+    let mut shards = match load_shards(&run_dir) {
+        Ok(shards) => shards,
+        Err(error) => {
+            return Some(CommandOutcome::error(format!(
+                "error: failed to load shards: {error}"
+            )))
+        }
+    };
+    let Some(shard) = shards.iter_mut().find(|shard| shard.shard_id == shard_id) else {
+        return None;
+    };
+
+    if shard.state != "failed" && shard.state != "blocked" {
+        return Some(failed(
+            "retry",
+            shard_id,
+            format!("invalid state: shard is {} and cannot retry", shard.state),
+        ));
+    }
+
+    let runtime = match runtime_from_label(&shard.runtime) {
+        Ok(runtime) => runtime,
+        Err(message) => return Some(CommandOutcome::error(message)),
+    };
+    let brief = match plan_shards(&run.objective)
+        .into_iter()
+        .find(|planned| planned.id == shard.shard_id)
+    {
+        Some(planned) => planned.brief,
+        None => {
+            return Some(CommandOutcome::error(format!(
+                "error: failed to resolve shard brief for {}",
+                shard_id
+            )))
+        }
+    };
+
+    let mut attempts = match load_shard_attempts(&run_dir, shard_id) {
+        Ok(attempts) => attempts,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => seed_attempt_history(shard),
+        Err(error) => {
+            return Some(CommandOutcome::error(format!(
+                "error: failed to load shard attempts: {error}"
+            )))
+        }
+    };
+    let next_attempt = attempts.last().map(|attempt| attempt.attempt + 1).unwrap_or(1);
+    attempts.push(PersistedShardAttempt {
+        attempt: next_attempt,
+        pid: None,
+        state: "queued".to_owned(),
+    });
+
+    shard.pid = None;
+    shard.state = "queued".to_owned();
+    if let Err(error) = write_shard(&run_dir, shard) {
+        return Some(CommandOutcome::error(format!(
+            "error: failed to persist retried shard state: {error}"
+        )));
+    }
+    if let Err(error) = write_shard_attempts(&run_dir, shard_id, &attempts) {
+        rollback_prelaunch_retry_state(&run_dir, shard, &mut attempts, shard_id);
+        return Some(CommandOutcome::error(format!(
+            "error: failed to persist shard attempts: {error}"
+        )));
+    }
+    if let Err(error) = append_event(
+        &run_dir,
+        &PersistedEvent {
+            timestamp: timestamp_now(),
+            shard_id: Some(shard_id.to_owned()),
+            message: format!("retry requested for shard {}", shard_id),
+        },
+    ) {
+        rollback_prelaunch_retry_state(&run_dir, shard, &mut attempts, shard_id);
+        return Some(CommandOutcome::error(format!(
+            "error: failed to record retry request: {error}"
+        )));
+    }
+
+    let request = LaunchRequest {
+        runtime,
+        shard_id: shard.shard_id.clone(),
+        brief,
+        workspace: PathBuf::from(&shard.workspace),
+        logs_dir: run_dir.join("logs"),
+    };
+    let spec = build_launch_spec(&request);
+    let args = spec.args.iter().map(String::as_str).collect::<Vec<_>>();
+
+    let mut launch = match spawn_worker(&request, spec.program, &args) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            let _ = mark_retry_spawn_failure(&run_dir, shard, &mut attempts, shard_id, &error);
+            return Some(CommandOutcome::error(render_response(
+                "failed",
+                "retry",
+                shard_id,
+                &format!("retry launch failed: {:?}", error),
+            )));
+        }
+    };
+
+    let pid = launch.child.id();
+    attempts
+        .last_mut()
+        .expect("attempt list should include queued retry")
+        .pid = Some(pid);
+    attempts
+        .last_mut()
+        .expect("attempt list should include queued retry")
+        .state = "launched".to_owned();
+
+    shard.pid = Some(pid);
+    shard.state = "launched".to_owned();
+    if let Err(error) = finalize_retry_launch(&run_dir, shard, &mut attempts, shard_id, &mut launch)
+    {
+        return Some(CommandOutcome::error(format!(
+            "error: failed to finalize retried shard launch: {error}"
+        )));
+    }
+
+    Some(queued(
+        "retry",
+        shard_id,
+        format!(
+            "new shard attempt queued with pid {} and prior history preserved",
+            pid
+        ),
+    ))
 }
 
 pub fn run_reassign_intervention(shard_id: &str, runtime: &str) -> CommandOutcome {
@@ -257,4 +419,134 @@ fn merge_action_name(action: &MergeAction) -> &'static str {
         MergeAction::Approve => "merge approve",
         MergeAction::Reject => "merge reject",
     }
+}
+
+fn runtime_from_label(runtime: &str) -> Result<Runtime, String> {
+    match runtime {
+        "codex" => Ok(Runtime::Codex),
+        "claude" => Ok(Runtime::Claude),
+        other => Err(format!("error: unsupported persisted runtime {other}")),
+    }
+}
+
+fn seed_attempt_history(shard: &PersistedShard) -> Vec<PersistedShardAttempt> {
+    vec![PersistedShardAttempt {
+        attempt: 1,
+        pid: shard.pid,
+        state: shard.state.clone(),
+    }]
+}
+
+fn state_root() -> PathBuf {
+    std::env::var_os("PATCHLANE_STATE_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(".patchlane"))
+}
+
+fn timestamp_now() -> String {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock should be after unix epoch")
+        .as_secs();
+    format!("{seconds}")
+}
+
+fn finalize_retry_launch(
+    run_dir: &PathBuf,
+    shard: &mut PersistedShard,
+    attempts: &mut [PersistedShardAttempt],
+    shard_id: &str,
+    launch: &mut ManagedLaunchOutcome,
+) -> io::Result<()> {
+    if let Err(error) = write_shard(run_dir, shard) {
+        terminate_child(launch);
+        return Err(error);
+    }
+
+    if std::env::var_os("PATCHLANE_TEST_RETRY_FINALIZE_FAIL").is_some() {
+        rollback_retry_launch_state(run_dir, shard, attempts, shard_id, launch);
+        return Err(io::Error::other("simulated retry finalization failure"));
+    }
+
+    if let Err(error) = write_shard_attempts(run_dir, shard_id, attempts) {
+        rollback_retry_launch_state(run_dir, shard, attempts, shard_id, launch);
+        return Err(error);
+    }
+    if let Err(error) = append_event(
+        run_dir,
+        &PersistedEvent {
+            timestamp: timestamp_now(),
+            shard_id: Some(shard_id.to_owned()),
+            message: format!("retried shard {} with pid {}", shard_id, launch.child.id()),
+        },
+    ) {
+        rollback_retry_launch_state(run_dir, shard, attempts, shard_id, launch);
+        return Err(error);
+    }
+
+    Ok(())
+}
+
+fn mark_retry_spawn_failure(
+    run_dir: &PathBuf,
+    shard: &mut PersistedShard,
+    attempts: &mut [PersistedShardAttempt],
+    shard_id: &str,
+    error: &impl std::fmt::Debug,
+) -> io::Result<()> {
+    shard.state = "failed".to_owned();
+    shard.pid = None;
+    if let Some(last_attempt) = attempts.last_mut() {
+        last_attempt.state = "failed".to_owned();
+        last_attempt.pid = None;
+    }
+    write_shard(run_dir, shard)?;
+    write_shard_attempts(run_dir, shard_id, attempts)?;
+    append_event(
+        run_dir,
+        &PersistedEvent {
+            timestamp: timestamp_now(),
+            shard_id: Some(shard_id.to_owned()),
+            message: format!("retry spawn failure for shard {}: {:?}", shard_id, error),
+        },
+    )
+}
+
+fn terminate_child(launch: &mut ManagedLaunchOutcome) {
+    let _ = launch.child.kill();
+    let _ = launch.child.wait();
+}
+
+fn rollback_retry_launch_state(
+    run_dir: &PathBuf,
+    shard: &mut PersistedShard,
+    attempts: &mut [PersistedShardAttempt],
+    shard_id: &str,
+    launch: &mut ManagedLaunchOutcome,
+) {
+    terminate_child(launch);
+    shard.pid = None;
+    shard.state = "failed".to_owned();
+    if let Some(last_attempt) = attempts.last_mut() {
+        last_attempt.pid = None;
+        last_attempt.state = "failed".to_owned();
+    }
+    let _ = write_shard(run_dir, shard);
+    let _ = write_shard_attempts(run_dir, shard_id, attempts);
+}
+
+fn rollback_prelaunch_retry_state(
+    run_dir: &PathBuf,
+    shard: &mut PersistedShard,
+    attempts: &mut Vec<PersistedShardAttempt>,
+    shard_id: &str,
+) {
+    shard.pid = None;
+    shard.state = "failed".to_owned();
+    if let Some(last_attempt) = attempts.last_mut() {
+        last_attempt.pid = None;
+        last_attempt.state = "failed".to_owned();
+    }
+    let _ = write_shard(run_dir, shard);
+    let _ = write_shard_attempts(run_dir, shard_id, attempts);
 }
