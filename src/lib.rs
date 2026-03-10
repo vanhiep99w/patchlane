@@ -7,6 +7,7 @@ pub mod renderers;
 pub mod runtime;
 pub mod services;
 pub mod store;
+pub mod workspaces;
 pub mod workflow;
 
 pub fn bootstrap_banner() -> &'static str {
