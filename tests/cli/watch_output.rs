@@ -87,6 +87,11 @@ fn watch_output_reads_persisted_lifecycle_events_without_transcript_noise() {
             shard_id: Some("04".to_owned()),
             message: "shard 04 completed brief".to_owned(),
         },
+        PersistedEvent {
+            timestamp: "2026-03-10T10:04:00Z".to_owned(),
+            shard_id: Some("04".to_owned()),
+            message: "assistant: transcript summary for shard 04".to_owned(),
+        },
     ] {
         append_event(&run_dir, &event).expect("event should persist");
     }
@@ -124,6 +129,10 @@ fn watch_output_reads_persisted_lifecycle_events_without_transcript_noise() {
     assert!(
         !stdout.contains("user:"),
         "watch output should avoid raw speaker labels"
+    );
+    assert!(
+        !stdout.contains("assistant: transcript summary"),
+        "watch output should drop transcript-like persisted events"
     );
 
     fs::remove_dir_all(state_root).expect("temp root should be removable");

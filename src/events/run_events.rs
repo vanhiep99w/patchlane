@@ -94,14 +94,20 @@ pub fn fixture_watch_events() -> Vec<EventLine> {
 }
 
 pub fn derive_watch_events(events: Vec<PersistedEvent>) -> Vec<EventLine> {
-    if events.is_empty() {
-        return vec![EventLine {
+    let filtered = events
+        .into_iter()
+        .filter(|event| !contains_transcript_noise(&event.message))
+        .map(|event| event_line(&event))
+        .collect::<Vec<_>>();
+
+    if filtered.is_empty() {
+        vec![EventLine {
             timestamp: "none".to_owned(),
             message: "no recorded events".to_owned(),
-        }];
+        }]
+    } else {
+        filtered
     }
-
-    events.into_iter().map(|event| event_line(&event)).collect()
 }
 
 pub fn empty_watch_events() -> Vec<EventLine> {
@@ -164,6 +170,11 @@ fn event_line(event: &PersistedEvent) -> EventLine {
         timestamp: event.timestamp.clone(),
         message: event.message.clone(),
     }
+}
+
+fn contains_transcript_noise(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("transcript") || lower.contains("assistant:") || lower.contains("user:")
 }
 
 fn find_latest_shard_event<'a>(
