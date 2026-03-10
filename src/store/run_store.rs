@@ -74,6 +74,15 @@ pub fn load_shards(run_dir: &Path) -> io::Result<Vec<PersistedShard>> {
         .collect::<io::Result<Vec<_>>>()
 }
 
+pub fn load_events(run_dir: &Path) -> io::Result<Vec<PersistedEvent>> {
+    let bytes = fs::read(run_dir.join("events.jsonl"))?;
+    bytes
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice(line).map_err(io::Error::other))
+        .collect::<io::Result<Vec<_>>>()
+}
+
 fn write_json<T: Serialize>(path: PathBuf, value: &T) -> io::Result<()> {
     let bytes = serde_json::to_vec_pretty(value)?;
     fs::write(path, bytes)
