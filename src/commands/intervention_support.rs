@@ -147,6 +147,7 @@ fn retry_persisted_shard(shard_id: &str) -> Option<CommandOutcome> {
 
     let run = match load_run(&run_dir) {
         Ok(run) => run,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
         Err(error) => {
             return Some(CommandOutcome::error(format!(
                 "error: failed to load run: {error}"
@@ -155,6 +156,7 @@ fn retry_persisted_shard(shard_id: &str) -> Option<CommandOutcome> {
     };
     let mut shards = match load_shards(&run_dir) {
         Ok(shards) => shards,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
         Err(error) => {
             return Some(CommandOutcome::error(format!(
                 "error: failed to load shards: {error}"
