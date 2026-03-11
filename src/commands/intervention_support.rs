@@ -156,6 +156,8 @@ fn retry_persisted_shard(shard_id: &str) -> Option<CommandOutcome> {
     };
     let mut shards = match load_shards(&run_dir) {
         Ok(shards) => shards,
+        // Guards against the run directory being removed between the `latest_run_dir` call
+        // above and the `load_shards` call here (directory-deleted-between-calls race).
         Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
         Err(error) => {
             return Some(CommandOutcome::error(format!(

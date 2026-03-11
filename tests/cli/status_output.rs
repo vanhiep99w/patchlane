@@ -150,7 +150,7 @@ Agents
   agent-plan         writing-plans    writing-plans        waiting_for_approval codex   waiting on after-writing-plans
 
 Blockers
-  - run checkpoint pending
+  - blocked: checkpoint pending
   - agent-plan waiting on after-writing-plans
 
 Latest Event
@@ -232,7 +232,7 @@ Agents
   agent-brainstorm   brainstorming    brainstorming        running              codex   Need objective clarification
 
 Blockers
-  - run waiting for operator context
+  - blocked: waiting for operator context
 
 Latest Event
   2026-03-10T11:03:00Z [agent-brainstorm] waiting-input Need objective clarification
@@ -365,7 +365,7 @@ Agents
   agent-exec         subagent-driven-development execution            failed               codex   artifact write failed
 
 Blockers
-  - run artifact persistence failed
+  - blocked: artifact persistence failed
   - agent-exec artifact write failed
 
 Latest Event
@@ -374,6 +374,109 @@ Latest Event
 Next
   patchlane swarm watch";
     assert_eq!(stdout.trim(), expected);
+
+    fs::remove_dir_all(state_root).expect("temp root should be removable");
+}
+
+#[test]
+fn status_output_surfaces_blocked_approval_required_and_checkpoint_phase() {
+    let state_root = temp_root();
+    let run_dir = create_task_run(
+        &state_root.join("tasks"),
+        &PersistedTaskRun {
+            run_id: "run-task-005".to_owned(),
+            runtime: "codex".to_owned(),
+            objective: "Blocked on approval".to_owned(),
+            current_phase: "after-writing-plans".to_owned(),
+            overall_state: OrchestratorState::WaitingForApproval,
+            blocking_reason: Some("approval required".to_owned()),
+            workspace_root: "workspace".to_owned(),
+            workspace_policy: "isolated_by_default".to_owned(),
+            default_isolation: true,
+            created_at: "2026-03-10T13:00:00Z".to_owned(),
+            updated_at: "2026-03-10T13:02:00Z".to_owned(),
+        },
+    )
+    .expect("task run should persist");
+    write_agent(
+        &run_dir,
+        &PersistedAgent {
+            agent_id: "agent-plan".to_owned(),
+            run_id: "run-task-005".to_owned(),
+            parent_agent_id: None,
+            role: "planning".to_owned(),
+            current_phase: "after-writing-plans".to_owned(),
+            current_state: OrchestratorState::WaitingForApproval,
+            runtime: "codex".to_owned(),
+            workspace_path: "workspace/plan".to_owned(),
+            pid: None,
+            related_artifact_ids: vec![],
+            stdout_log: "logs/agent-plan-stdout.log".to_owned(),
+            stderr_log: "logs/agent-plan-stderr.log".to_owned(),
+            created_at: "2026-03-10T13:00:00Z".to_owned(),
+            updated_at: "2026-03-10T13:02:00Z".to_owned(),
+        },
+    )
+    .expect("agent should persist");
+    write_agent(
+        &run_dir,
+        &PersistedAgent {
+            agent_id: "agent-input".to_owned(),
+            run_id: "run-task-005".to_owned(),
+            parent_agent_id: None,
+            role: "clarification".to_owned(),
+            current_phase: "after-writing-plans".to_owned(),
+            current_state: OrchestratorState::WaitingForInput,
+            runtime: "codex".to_owned(),
+            workspace_path: "workspace/input".to_owned(),
+            pid: None,
+            related_artifact_ids: vec![],
+            stdout_log: "logs/agent-input-stdout.log".to_owned(),
+            stderr_log: "logs/agent-input-stderr.log".to_owned(),
+            created_at: "2026-03-10T13:01:00Z".to_owned(),
+            updated_at: "2026-03-10T13:02:00Z".to_owned(),
+        },
+    )
+    .expect("waiting-for-input agent should persist");
+    write_checkpoint(
+        &run_dir,
+        &PersistedCheckpoint {
+            checkpoint_id: "checkpoint-plans".to_owned(),
+            run_id: "run-task-005".to_owned(),
+            phase: "after-writing-plans".to_owned(),
+            target_kind: "artifact".to_owned(),
+            target_ref: "artifact-plan".to_owned(),
+            requested_by: "agent-plan".to_owned(),
+            status: CheckpointStatus::Pending,
+            prompt_text: "Approve? [y/n]".to_owned(),
+            response: None,
+            note: None,
+            created_at: "2026-03-10T13:02:00Z".to_owned(),
+            updated_at: "2026-03-10T13:02:00Z".to_owned(),
+        },
+    )
+    .expect("checkpoint should persist");
+    append_task_event(
+        &run_dir,
+        &PersistedTaskEvent {
+            event_id: "event-approval".to_owned(),
+            run_id: "run-task-005".to_owned(),
+            agent_id: Some("agent-plan".to_owned()),
+            event_type: AgentEventType::WaitingApproval,
+            payload_summary: "Approve? [y/n]".to_owned(),
+            timestamp: "2026-03-10T13:02:00Z".to_owned(),
+        },
+    )
+    .expect("event should persist");
+
+    let output = run_command(&["swarm", "status"], &state_root);
+    assert!(output.status.success(), "status should succeed");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+
+    assert!(stdout.contains("waiting_for_approval"), "state should show waiting_for_approval");
+    assert!(stdout.contains("waiting_for_input"), "state should show waiting_for_input");
+    assert!(stdout.contains("blocked: approval required"), "blockers should show blocked: approval required");
+    assert!(stdout.contains("waiting on after-writing-plans"), "agent detail should show checkpoint phase");
 
     fs::remove_dir_all(state_root).expect("temp root should be removable");
 }

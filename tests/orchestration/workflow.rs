@@ -1,10 +1,12 @@
 use patchlane::cli::{Runtime, TaskCommand};
 use patchlane::orchestration::model::{
-    ArtifactType, CheckpointStatus, OrchestratorState, PersistedAgent, PersistedCheckpoint,
-    PersistedTaskRun,
+    AgentEventType, ArtifactType, CheckpointStatus, OrchestratorState, PersistedAgent,
+    PersistedCheckpoint, PersistedTaskEvent, PersistedTaskRun,
 };
 use patchlane::orchestration::recovery::recover_run_state;
-use patchlane::orchestration::store::{create_task_run, load_task_snapshot, write_agent, write_checkpoint};
+use patchlane::orchestration::store::{
+    append_task_event, create_task_run, load_task_snapshot, write_agent, write_checkpoint,
+};
 use patchlane::orchestration::workflow::execute_task_workflow;
 use std::fs;
 use std::path::PathBuf;
@@ -238,6 +240,81 @@ fn recovery_prefers_latest_pending_checkpoint_and_excludes_running_agents() {
     );
     assert_eq!(recovered.blocked_agents.len(), 1);
     assert_eq!(recovered.blocked_agents[0].agent_id, "agent-blocked");
+
+    fs::remove_dir_all(root).expect("temp root should be removable");
+}
+
+#[test]
+fn recovery_surfaces_checkpoint_decision_as_latest_event() {
+    let root = temp_root();
+    let run = PersistedTaskRun {
+        run_id: "run-003".to_owned(),
+        objective: "Recover checkpoint decision event".to_owned(),
+        runtime: "codex".to_owned(),
+        current_phase: "after-writing-plans".to_owned(),
+        overall_state: OrchestratorState::WaitingForApproval,
+        blocking_reason: Some("approval required".to_owned()),
+        workspace_root: "workspace".to_owned(),
+        workspace_policy: "isolated_by_default".to_owned(),
+        default_isolation: true,
+        created_at: "2026-03-10T00:00:00Z".to_owned(),
+        updated_at: "2026-03-10T00:00:05Z".to_owned(),
+    };
+    let run_dir = create_task_run(&root, &run).expect("run should persist");
+    write_agent(
+        &run_dir,
+        &PersistedAgent {
+            agent_id: "agent-waiting".to_owned(),
+            run_id: "run-003".to_owned(),
+            parent_agent_id: None,
+            role: "planner".to_owned(),
+            current_phase: "after-writing-plans".to_owned(),
+            current_state: OrchestratorState::WaitingForInput,
+            runtime: "codex".to_owned(),
+            workspace_path: "workspace".to_owned(),
+            pid: None,
+            related_artifact_ids: Vec::new(),
+            stdout_log: "agent-waiting-stdout.log".to_owned(),
+            stderr_log: "agent-waiting-stderr.log".to_owned(),
+            created_at: "2026-03-10T00:00:00Z".to_owned(),
+            updated_at: "2026-03-10T00:00:05Z".to_owned(),
+        },
+    )
+    .expect("waiting agent should persist");
+    append_task_event(
+        &run_dir,
+        &PersistedTaskEvent {
+            event_id: "event-checkpoint-decision".to_owned(),
+            run_id: "run-003".to_owned(),
+            agent_id: None,
+            event_type: AgentEventType::CheckpointDecision,
+            payload_summary: "checkpoint: after-writing-plans".to_owned(),
+            timestamp: "2026-03-10T00:00:05Z".to_owned(),
+        },
+    )
+    .expect("checkpoint decision event should persist");
+
+    let recovered = recover_run_state(&run_dir).expect("run should recover");
+
+    assert!(recovered.pending_checkpoint.is_none());
+    assert!(recovered
+        .blocked_agents
+        .iter()
+        .any(|agent| agent.current_state == OrchestratorState::WaitingForInput));
+    assert_eq!(
+        recovered
+            .latest_event
+            .as_ref()
+            .map(|event| event.event_type),
+        Some(AgentEventType::CheckpointDecision)
+    );
+    assert!(
+        recovered
+            .latest_event
+            .as_ref()
+            .map(|event| event.payload_summary.as_str())
+            == Some("checkpoint: after-writing-plans")
+    );
 
     fs::remove_dir_all(root).expect("temp root should be removable");
 }

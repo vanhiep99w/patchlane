@@ -275,7 +275,7 @@ fn collect_blockers(snapshot: &TaskSnapshot) -> Vec<String> {
     let mut blockers = Vec::new();
 
     if let Some(reason) = &snapshot.run.blocking_reason {
-        blockers.push(format!("run {reason}"));
+        blockers.push(format!("blocked: {reason}"));
     }
 
     blockers.extend(snapshot.agents.iter().filter(|agent| {
